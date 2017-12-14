@@ -1,0 +1,87 @@
+MODULE PASS
+!----------------------------------------------------------------------
+!      Module Pass of Coupled Model NHWAVE_SWAN
+!
+!      Purpose:
+!      Define pass variables between NHWAVE and SWAN 
+!
+!      Module Used:
+!      PARAM
+!      
+!      Pass Variables:
+!     
+!      'SW' stands for SWAN
+!      'NW' stands for NHWAVE
+!     
+!      SWAN to NHWAVE:
+!      Wave height, Peak period, Wave angle, Wave bottom velocity
+!      Wave forces (Radiation Stress)
+!
+!      NHWAVE to SWAN:
+!      Depth averaged U,V and surface elevation Eta
+! 
+!---------------------------------------------------------------------
+       USE PARAM            
+       IMPLICIT NONE
+       INTEGER :: IX,IY,INDX
+
+! pass variables total 10 variables
+
+       REAL(SP),DIMENSION(:,:),ALLOCATABLE :: &
+         WaveHeightSW,WaveHeightNW,WaveHeightGL,&
+         PeakPeriodSW,PeakPeriodNW,PeakPeriodGL, &
+         WaveAngleSW, WaveAngleNW, WaveAngleGL, &
+         PeakAngleSW, PeakAngleNW, PeakAngleGL, &
+         WaveUbottSW, WaveUbottNW, WaveUbottGL, &
+         WaveDissSW, WaveDissNW, WaveDissGL, &
+         WaveDissBrkSW, WaveDissBrkNW, WaveDissBrkGL, &
+         WaveDissWcpSW, WaveDissWcpNW, WaveDissWcpGL, &
+         WaveDissFrcSW, WaveDissFrcNW, WaveDissFrcGL, &
+         WaveFluxXSW,WaveFluxXNW,WaveFluxXGL, &
+         WaveFluxYSW,WaveFluxYNW,WaveFluxYGL, &
+         WaveFxSW,WaveFxNW,WaveFxGL, &
+         WaveFySW,WaveFyNW,WaveFyGL, &
+! Qb is fraction of breaking waves, which is non-dimensional
+         WaveFrcBrkSW, WaveFrcBrkNW, WaveFrcBrkGL, &
+! current velocity and mean water level from SWAN
+         MeanFlowUSW,MeanFlowUNW,MeanFlowUGL, &
+         MeanFlowVSW,MeanFlowVNW,MeanFlowVGL, &
+         MeanElevSW,MeanElevNW,MeanElevGL
+
+! pass depth-weighted current (KirbyChen, 1989)
+
+        REAL(SP),DIMENSION(:,:),ALLOCATABLE :: U_kc,V_kc,DUdk_kc,DVdk_kc
+        LOGICAL :: KC_CURR
+
+! other variable needed
+
+       REAL(SP),DIMENSION(:,:),ALLOCATABLE :: &
+         GRID_ANGLE_SW2NW,MASK_WC_INTERACT
+
+       REAL(SP) :: WC_LAG
+
+! number of grid points for wave-currnt interaction region
+
+       INTEGER :: WC_BOUND_WEST,WC_BOUND_EAST, &
+                  WC_BOUND_SOUTH,WC_BOUND_NORTH
+
+!       INTEGER,DIMENSION(:),ALLOCATABLE :: VOQR
+!       REAL(SP),DIMENSION(:),ALLOCATABLE :: VOQ
+         
+# if defined (PARALLEL)
+      INTEGER,DIMENSION(:),ALLOCATABLE :: MXFs,MYFs,& 
+             IXTRIM_Ls,IXTRIM_Rs,IYTRIM_Ls,IYTRIM_Rs     
+      INTEGER :: IXTRIM_L,IXTRIM_R,IYTRIM_L,IYTRIM_R  
+      LOGICAL :: FIRST_CALL_SW2NW = .TRUE.
+      LOGICAL :: FIRST_CALL_NW2SW = .TRUE.
+# endif
+
+      LOGICAL :: SWAN_RUN
+      LOGICAL :: NHWAVE_RUN,WC_BOTSTR
+      LOGICAL :: WEC_ROLLER,WEC_MIXING
+      LOGICAL :: FIRST_CALL_PASS_SW = .TRUE.
+      LOGICAL :: FIRST_CALL_PASS_NW = .TRUE.
+      REAL(SP) :: DT_NW
+
+END MODULE PASS
+

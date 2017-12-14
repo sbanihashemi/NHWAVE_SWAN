@@ -1,0 +1,357 @@
+! nw_nhwavemain.fnw
+!-----------------------------------------------------------------------
+! nw_nhwavemain.fnw contains subroutines for NHWAVE intialization, cycling
+! and output. 
+!
+! Subroutine included:
+!
+! NHWAVE_INITIALIZATION
+! NHWAVE_CYCLE
+! OUTPUT
+! 
+! Module used:
+! 
+! GLOBAL
+! SWAN_COMMON
+!---------------------------------------------------------------------
+SUBROUTINE NHWAVE_INITIALIZATION
+     USE SWAN_COMMON,ONLY : MYC,MXC,MYCGL,MXCGL
+     USE GLOBAL
+     USE PASS
+     IMPLICIT NONE
+     INTEGER :: i,j,Istage
+
+   ! read parameter input and get MPI rank
+     call read_input
+
+   ! wave-current interaction mask
+    
+    IF(SWAN_RUN.OR.NHWAVE_RUN)THEN
+
+    IF(.NOT.ALLOCATED(MASK_WC_INTERACT)) ALLOCATE(MASK_WC_INTERACT(Mglob,Nglob))
+     MASK_WC_INTERACT = 1.0_SP
+     DO J=1,Nglob
+       DO I=1,WC_BOUND_WEST
+         MASK_WC_INTERACT(I,J)=ZERO
+       ENDDO
+       DO I=Mglob-WC_BOUND_EAST+1,Mglob
+         MASK_WC_INTERACT(I,J)=ZERO
+       ENDDO
+     ENDDO
+
+     DO I=1,Mglob
+       DO J=1,WC_BOUND_SOUTH
+         MASK_WC_INTERACT(I,J)=ZERO
+       ENDDO
+       DO J=Nglob-WC_BOUND_NORTH+1,Nglob
+         MASK_WC_INTERACT(I,J)=ZERO
+       ENDDO
+     ENDDO
+     
+     ENDIF ! end of wave-current interaction mask
+
+   ! work index and get MPI processor location npx, npy
+     call index
+
+   ! allocate variables
+     call allocate_variables
+
+   ! generate grids
+     call generate_grid
+
+   ! read bathymetry
+     call read_bathymetry
+
+   ! initialize model run
+     call initial
+
+   ! allocate and initialize passing variables
+
+   IF(SWAN_RUN.or.NHWAVE_RUN)THEN
+! without SWAN, we may still need wave forces from external files. 
+   IF(FIRST_CALL_PASS_SW)THEN
+      FIRST_CALL_PASS_SW = .FALSE.
+
+        IF(.NOT.ALLOCATED(WaveHeightSW)) ALLOCATE(WaveHeightSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveHeightNW)) ALLOCATE(WaveHeightNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(PeakPeriodSW)) ALLOCATE(PeakPeriodSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(PeakPeriodNW)) ALLOCATE(PeakPeriodNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveAngleSW)) ALLOCATE(WaveAngleSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveAngleNW)) ALLOCATE(WaveAngleNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(PeakAngleSW)) ALLOCATE(PeakAngleSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(PeakAngleNW)) ALLOCATE(PeakAngleNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveUbottSW)) ALLOCATE(WaveUbottSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveUbottNW)) ALLOCATE(WaveUbottNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveFxSW)) ALLOCATE(WaveFxSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveFxNW)) ALLOCATE(WaveFxNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveFySW)) ALLOCATE(WaveFySW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveFyNW)) ALLOCATE(WaveFyNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveFluxXSW)) ALLOCATE(WaveFluxXSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveFluxXNW)) ALLOCATE(WaveFluxXNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveFluxYSW)) ALLOCATE(WaveFluxYSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveFluxYNW)) ALLOCATE(WaveFluxYNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveDissSW)) ALLOCATE(WaveDissSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveDissNW)) ALLOCATE(WaveDissNW(Mloc,Nloc))
+     
+        IF(.NOT.ALLOCATED(WaveDissBrkSW)) ALLOCATE(WaveDissBrkSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveDissBrkNW)) ALLOCATE(WaveDissBrkNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveDissWcpSW)) ALLOCATE(WaveDissWcpSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveDissWcpNW)) ALLOCATE(WaveDissWcpNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveDissFrcSW)) ALLOCATE(WaveDissFrcSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveDissFrcNW)) ALLOCATE(WaveDissFrcNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(WaveFrcBrkSW)) ALLOCATE(WaveFrcBrkSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(WaveFrcBrkNW)) ALLOCATE(WaveFrcBrkNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(MeanFlowUSW)) ALLOCATE(MeanFlowUSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(MeanFlowUNW)) ALLOCATE(MeanFlowUNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(MeanFlowVSW)) ALLOCATE(MeanFlowVSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(MeanFlowVNW)) ALLOCATE(MeanFlowVNW(Mloc,Nloc))
+
+        IF(.NOT.ALLOCATED(MeanElevSW)) ALLOCATE(MeanElevSW(MXC,MYC))
+        IF(.NOT.ALLOCATED(MeanElevNW)) ALLOCATE(MeanElevNW(Mloc,Nloc))
+
+        WaveHeightSW = ZERO
+        WaveHeightNW = ZERO
+        PeakPeriodSW = ZERO
+        PeakPeriodNW = ZERO
+        PeakAngleSW  = ZERO
+        PeakAngleNW  = ZERO
+        WaveAngleSW  = ZERO
+        WaveAngleNW  = ZERO
+        WaveUbottSW  = ZERO
+        WaveUbottNW  = ZERO
+        WaveFxSW = ZERO
+        WaveFxNW = ZERO
+        WaveFySW = ZERO
+        WaveFyNW = ZERO
+        WaveFluxXSW = ZERO
+        WaveFluxYSW = ZERO
+        WaveFluxXNW = ZERO
+        WaveFluxYNW = ZERO
+        WaveDissSW = ZERO
+        WaveDissNW = ZERO
+        WaveDissBrkSW = ZERO
+        WaveDissBrkNW = ZERO
+        WaveDissWcpSW = ZERO
+        WaveDissWcpNW = ZERO
+        WaveDissFrcSW = ZERO
+        WaveDissFrcNW = ZERO
+        WaveFrcBrkSW = ZERO
+        WaveFrcBrkNW = ZERO
+        MeanFlowUSW = ZERO
+        MeanFlowUNW = ZERO
+        MeanFlowVSW = ZERO
+        MeanFlowVNW = ZERO
+        MeanElevSW = ZERO
+        MeanElevNW = ZERO
+
+# if defined (PARALLEL)
+
+      IF(SWAN_RUN)THEN
+! without SWAN, we do not need GL wave variables
+        IF(.NOT.ALLOCATED(WaveHeightGL))ALLOCATE(WaveHeightGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(PeakPeriodGL))ALLOCATE(PeakPeriodGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(PeakAngleGL))ALLOCATE(PeakAngleGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveAngleGL))ALLOCATE(WaveAngleGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveUbottGL))ALLOCATE(WaveUbottGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveFxGL))ALLOCATE(WaveFxGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveFyGL))ALLOCATE(WaveFyGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveFluxXGL))ALLOCATE(WaveFluxXGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveFluxYGL))ALLOCATE(WaveFluxYGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveDissGL))ALLOCATE(WaveDissGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveDissBrkGL))ALLOCATE(WaveDissBrkGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveDissWcpGL))ALLOCATE(WaveDissWcpGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveDissFrcGL))ALLOCATE(WaveDissFrcGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(WaveFrcBrkGL))ALLOCATE(WaveFrcBrkGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(MeanFlowUGL))ALLOCATE(MeanFlowUGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(MeanFlowVGL))ALLOCATE(MeanFlowVGL(MXCGL,MYCGL))
+        IF(.NOT.ALLOCATED(MeanElevGL))ALLOCATE(MeanElevGL(MXCGL,MYCGL))
+
+        WaveHeightGL = ZERO
+        PeakAngleGL  = ZERO
+        PeakPeriodGL = ZERO
+        WaveAngleGL  = ZERO
+        WaveUbottGL  = ZERO
+        WaveFxGL  = ZERO
+        WaveFyGL  = ZERO
+        WaveFluxXGL = ZERO
+        WaveFluxYGL = ZERO
+        WaveDissGL = ZERO
+        WaveDissBrkGL = ZERO
+        WaveDissWcpGL = ZERO
+        WaveDissFrcGL = ZERO
+        WaveFrcBrkGL = ZERO
+        MeanFlowUGL = ZERO
+        MeanFlowVGL = ZERO
+        MeanElevGL = ZERO
+
+      ENDIF
+# endif
+
+   ENDIF ! end first_call_pass
+
+   ENDIF
+END SUBROUTINE NHWAVE_INITIALIZATION
+
+SUBROUTINE NHWAVE_CYCLE
+     USE GLOBAL
+     IMPLICIT NONE
+     INTEGER:: j, Istage
+
+ ! time step
+       call estimate_dt
+
+# if defined (LANDSLIDE)
+       ! run landslide-generated tsunami
+       if(trim(SlideType)=='RIGID') then
+         call update_bathymetry
+       endif
+# endif
+
+       ! update boundary conditions
+       call update_wave_bc
+
+       ! update mask
+!       call update_mask
+
+!       write(*,*) 'call update_mask'
+
+       ! update wind
+       call update_wind
+ 
+!       write(*,*) 'call update_wind'
+
+       ! update vars
+       call update_vars
+       
+!       write(*,*) 'call update_vars'
+
+ ! SSP Runge-Kutta time stepping
+       do Istage = 1,It_Order
+
+         ! well-balanced source terms
+         call source_terms
+
+!       write(*,*) 'call source_terms'
+
+         ! fluxes at cell faces
+         call fluxes
+
+!       write(*,*) 'call fluxes'
+
+         ! update all variables
+         call eval_duvw(Istage)
+
+!       write(*,*) 'call eval_duvw' 
+
+         ! sponge layer
+         if(SPONGE_ON) then
+           call sponge_damping
+         endif
+
+         ! turbulence model
+         if(VISCOUS_FLOW) call eval_turb(Istage)
+
+# if defined (SALINITY)
+         ! update salinity
+         call eval_sali(Istage)
+
+         ! update density
+         call eval_dens
+# endif
+
+# if defined (BUBBLE)
+         if(TIME>=TIM_B) then
+           ! bubble rise velocity
+           call bslip_velocity
+
+           ! update bubble concentration
+           call eval_bub(Istage)
+         endif
+# endif
+
+
+# if defined (SEDIMENT)
+         if(TIME>=TIM_Sedi) then
+           ! settling velocity
+           call settling_velocity
+
+           ! update sediment concentration
+           call eval_sedi(Istage)
+           
+           if(BED_CHANGE.and.TIME>=10.0) then
+           ! update bed elevation
+           call update_bed(Istage)
+           endif
+ 
+            if(COUPLE_FS) then
+             ! update mixture density
+             call eval_dens
+            endif
+          endif
+# endif
+
+       enddo
+
+! end Runge-Kutta Sheme
+
+END SUBROUTINE NHWAVE_CYCLE
+
+SUBROUTINE OUTPUT
+      USE SWAN_COMMON
+      USE GLOBAL
+      IMPLICIT NONE
+
+# if defined (BALANCE2D)
+        ! evaluate momentum balance in cross-shore
+          call eval_balance
+# endif
+
+! wave average quantities
+      if(WAVE_AVERAGE_ON) then
+         call wave_average
+      endif
+
+       ! screen output
+       Screen_Count = Screen_Count+DT_NW
+       if(Screen_Count>=Screen_Intv) then
+         Screen_Count = Screen_Count-Screen_Intv
+         call statistics
+       endif
+
+       ! probe output to files
+       if(NSTAT>0) then
+         Plot_Count_Stat = Plot_Count_Stat+DT_NW
+         if(Plot_Count_Stat>=Plot_Intv_Stat) then
+           Plot_Count_Stat=Plot_Count_Stat-Plot_Intv_Stat
+           call probes
+         endif
+       endif
+
+ ! field output to files
+       if(TIME>=Plot_Start) then
+         Plot_Count = Plot_Count+DT_NW
+         if(Plot_Count>=Plot_Intv) then
+           Plot_Count=Plot_Count-Plot_Intv
+           call preview
+         endif
+       endif
+ ! write out wave height and setup
+     if(WAVE_AVERAGE_ON) then
+       call print_wh_setup
+     endif
+
+END SUBROUTINE OUTPUT 

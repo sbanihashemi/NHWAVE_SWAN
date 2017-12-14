@@ -1,0 +1,527 @@
+$*************************HEADING************************                                           
+$                                                                                         
+PROJECT 'Langmuir' ' '
+ 'Langmuir Circulation'
+ 'Bathymetry: flat bottom'
+ 'COMMENTS'
+
+MODE NONSTATIONARY TWODIMENSIONAL
+
+&& Note that Nautical is not suitable for NHWAVE_SWAN coupling &&
+
+SET DEPMIN 0.10 INRHOG 1 CARTESIAN
+COORDINATES CARTESIAN
+
+&& KEYWORDS TO CREATE AND READ COMPUTATIONAL GRID &&
+CGRID CURVILINEAR 127 3 EXC 9.999000e+003 &
+        CIRCLE 36 0.04 1.0 20
+READGRID COORDINATES 1 './input_all/swan_grid_coord.grd' 4 0 0 FREE
+
+&& KEYWORDS TO CREATE AND READ BATHYMETRY GRID &&
+INPGRID BOTTOM CURVILINEAR 0 0 127 3 EXC 9.999000e+003
+READINP BOTTOM  1 './input_all/swan_bathy.bot' 4 0 FREE
+
+&& BOUNDARY FORCING &&
+
+BOUNDPAR1 SHAPESPEC JONSWAP 3.3 PEAK DSPR DEGREES
+BOUNDPAR2 SEGMENT IJ 0 0 0 3 CONSTANT PAR 3.0 20 0. 30.
+BOUNDPAR3 SEGMENT IJ 0 3 127 3 CONSTANT PAR 3.0 20 0. 30
+BOUNDPAR4 SEGMENT IJ 0 0 127 0 CONSTANT PAR 3.0 20 0. 30
+
+& Restart name **********************************
+&INIT HOTSTART 'swan_restart.dat'
+
+& PHYSICS  **************************************
+GEN3
+BREAKING CONSTANT 1.0 0.73  
+FRICTION MADSEN 0.05
+OFF QUAD
+
+&BLOCK 'COMPGRID' NOHEADER './Output/depth.mat'  LAY 3 DEPTH
+&BLOCK 'COMPGRID' NOHEADER './Output/watlev.mat' LAY 3 WATLEV
+&BLOCK 'COMPGRID' NOHEADER './Output/botlev.mat' LAY 3 BOTLEV
+&BLOCK 'COMPGRID' NOHEADER './Output/vel.mat'    LAY 3 VEL 
+&BLOCK 'COMPGRID' NOHEADER './output_sw/fric.mat'   LAY 3 FRCOEF
+
+BLOCK 'COMPGRID' NOHEADER './output_sw/dissip' LAY 3 DISSIP 
+BLOCK 'COMPGRID' NOHEADER './output_sw/disbot' LAY 3 DISBOT
+BLOCK 'COMPGRID' NOHEADER './output_sw/dissurf' LAY 3 DISSURF
+BLOCK 'COMPGRID' NOHEADER './output_sw/diswcap' LAY 3 DISWCAP
+
+BLOCK 'COMPGRID' NOHEADER './output_sw/hsig'   LAY 3 HSIGN
+ 
+&BLOCK 'COMPGRID' NOHEADER './Output/rtp.mat'    LAY 3 RTP
+&BLOCK 'COMPGRID' NOHEADER './Output/tmbot.mat'  LAY 3 TMBOT
+&BLOCK 'COMPGRID' NOHEADER './Output/ubot.mat'   LAY 3 UBOT  
+&BLOCK 'COMPGRID' NOHEADER './Output/wdir.mat'   LAY 3 DIR 
+&BLOCK 'COMPGRID' NOHEADER './Output/wlen.mat'   LAY 3 WLEN
+&BLOCK 'COMPGRID' NOHEADER './Output/qb.mat'     LAY 3 QB 
+&BLOCK 'COMPGRID' NOHEADER './Output/xp.mat'     LAY 3 XP
+&BLOCK 'COMPGRID' NOHEADER './Output/yp.mat'     LAY 3 YP
+
+&BLOCK 'COMPGRID' NOHEAD './output_sw/sbeach' LAY 4 HSIGN DIR TDIR RTMM10 TMM10
+
+
+PROP BSBT
+
+COMPUTE NONSTATIONARY 20000101.010000 20 SEC 20000101.060000
+
+STOP        
+! ***************Part 2: WAVE CURRENT INTERATION************************
+  ! 1) setup NHWAVE_RUN or SWAN_RUN
+  !    DEFAULT is that both are true
+  !    NOTE: you have to provide all input parameters for both NHWAVE and SWAN
+  !    even if you run only SWAN or NHWAVE-alone
+  ! 2)setup a wave-interaction region bounded by east,west,
+  ! south and north edges with a width (number of grid point)
+  ! this can avoid nonrealistic forcing output from SWAN
+  ! 3)setup wave-current interaction delay time WC_LAG(s)
+SWAN_RUN = T
+NHWAVE_RUN = T
+EXTERNAL_FORCING = T
+FORC_FILE = F
+KC_CURR = T
+WEC_ROLLER = F
+WEC_MIXING = F
+WC_BOTSTR = F
+WC_BOUND_WEST = 0
+WC_BOUND_EAST = 0
+WC_BOUND_SOUTH = 0
+WC_BOUND_NORTH = 0
+! if WC_LAG is not zero, model may break
+WC_LAG = 0.0
+
+! -------------------------OUTPUT for SWAN----------------------
+! output variables, T=.TRUE, F = .FALSE.
+! OUT_HS = significant wave height
+! OUT_PER = peak wave period
+! OUT_WDIR = peak wave direction
+! OUT_WBV = wave bottom velocity
+! OUT_WFC = wave-averaged forces
+! OUT_DISP = wave dissipation 
+OUT_HS = T
+OUT_PER = T
+OUT_WDIR = T
+OUT_WBV = F
+OUT_WFC = F
+OUT_DISP = T
+OUT_DISBRK = T
+OUT_DISFRC = T
+OUT_DISWCP = T
+! ********************INPUT FILE FOR NHWAVE**********************
+! NOTE: all input parameter are capital sensitive
+
+! --------------------TITLE-------------------------------------
+TITLE = LCELL
+
+! ---------------- RESULT_FOLDER-------------------------------
+RESULT_FOLDER = ./output_nw/
+
+! --------------------DIMENSION---------------------------------
+! cell numbers
+Mglob = 128
+Nglob = 4
+Kglob = 20
+
+! --------------------PROCESSOR NUMBER-------------------------
+PX = 16
+PY = 1
+
+! -----------------------TIME----------------------------------
+! time: total computational time/ plot time / screen interval
+! now have to specify time range in SWAN input part
+! all in seconds
+SIM_STEPS = 1000000
+PLOT_START = 0.0
+PLOT_INTV = 1800.0
+SCREEN_INTV = 5.0
+
+! ------------------------GRID----------------------------------
+! grid sizes
+DX = 112.0
+DY = 1000.0
+
+! ---------------------VERTICAL GRID OPTION--------------------
+! IVGRD = 1: uniform; 2: exponential
+IVGRD = 1
+GRD_R = 1.1
+
+! ----------------------TIME STEP-----------------------------
+DT_INI = 1.000
+DT_MIN = 0.01
+DT_MAX = 10.000
+
+! ----------------------BATHYMETRY---------------------------
+! if analytical bathymetry
+DEPTH_TYPE = CELL_CENTER
+ANA_BATHY  = F
+
+! -------------------INITIAL CONDITION---------------------------
+! if INITIAL_EUVW = T, need files eta0.txt and uvw0.txt
+INITIAL_EUVW = F
+
+! ----------------------NUMERICS----------------------------
+! Scalar convection scheme: "TVD" or "HLPA"
+HIGH_ORDER = SECOND
+TIME_ORDER = SECOND
+CONVECTION = HLPA
+HLLC = F
+
+! ----------------------BOTTOM ROUGHNESS-------------------
+! Ibot = 1: given the drag coefficient Cd0
+! Ibot = 2: given the bottom roughness height Zob
+! Larger Zob indicates larger Cd0
+Ibot = 2
+Cd0 = 0.005
+Zob = 0.001
+
+! ---------------------WIND STRESS--------------------------
+! Iws = 1: given constant wind speed
+! Iws = 2: given spatially varying wind speed (need wind.txt)
+! WindU,WindV: constant wind speed
+Iws = 1
+WindU = 0.0
+WindV = 0.0
+
+! ---------------------Coriolis----------------------------
+! slat: latitude
+slat = 0.0
+
+! ---------------------BAROTROPIC--------------------------
+! if barotropic run
+BAROTROPIC = F
+
+! ----------------------NON-HYDRO---------------------------
+! if non-hydrostatic simulation
+NON_HYDRO = F
+
+! --------------------COURANT_NUMBER---------------------------------
+CFL = 0.5
+
+! ---------------------RAMP-UP--------------------------------
+! time to ramp up simulation
+TRAMP = 0.0
+
+! --------------------VISCOSITY------------------------------
+VISCOUS_FLOW = T
+IVTURB = 4
+IHTURB = 1
+VISCOSITY = 1.e-6
+Schmidt = 1.0
+Chs = 0.0
+Cvs = 1.e-3
+
+! --------------------VISCOUS NUMBER----------------------------
+VISCOUS_NUMBER = 0.1666667
+
+! ----------------------WET-DRY-------------------------------
+! minimum depth for wetting-drying
+MinDep = 0.20
+
+! ---------------------POISSON SOLVER-------------------------
+! isolver is an option for different preconditioner.
+! itmax is the maximum number of iterations.
+! tol is the stopping criterion.
+!
+! isolver=1: Modified Incomplete Cholesky CG
+! isolver=2: Incomplete Cholesky GMRES
+! isolver=3: Successive Overrelaxation (SOR) GMRES
+ISOLVER = 2
+ITMAX = 1000
+TOL = 1.e-8
+
+! ------------------PERIODIC BC------------------------------------
+! periodic=.true. : periodic boundary condition in y direction
+! Notice if periodic=.true., Nglob must be power-of-two.
+! No periodic boundaries in serial run.
+! For SWAN, you need number of grid for transition
+
+PERIODIC_X = F
+PERIODIC_Y = T
+Num_Transit = 0
+! ------------------EXTERNAL FORCING------------------------------
+!EXTERNAL_FORCING = T
+!FORC_FILE = F
+
+! -------------------BOUNDARY_TYPE--------------------------------
+! bc_type=1: free-slip
+!         2: no-slip
+!         3: influx
+!         4: outflux (specified eta)
+!         5: bottom friction
+!         6: radiation bc
+BC_X0 = 3
+BC_Xn = 3
+BC_Y0 = 1
+BC_Yn = 1
+BC_Z0 = 5
+BC_Zn = 1
+
+! ---------------------WAVEMAKER------------------------------
+! wavemaker
+! AMP - wave height; PER - wave period; DEP - incident water depth
+! THETA - incident wave angle
+! LEF_SOL - left boundary solitary wave, need AMP,DEP
+! LEF_LIN - left boundary linear wave, need AMP,PER,DEP
+! LEF_CON - left boundary cnoidal wave, need AMP,PER,DEP
+! LEF_STK - left boundary stokes wave, need AMP,PER,DEP
+! LEF_TID - left boundary tide wave, has to specify in subroutine
+! LEF_JON - left boundary for JONSWAP spectrum
+! INI_ETA - initial surface elevation specified in subroutine initial
+! INT_LIN - internal wavemaker for linear wave
+! INT_CON - internal wavemaker for cnoidal wave
+! INT_SOL - internal wavemaker for solitary wave
+! INT_JON - internal wavemaker for JONSWAP spectrum
+! INT_SPC - internal wavemaker for 2D spectrum (need spc2d.txt)
+! FLUX_LR - impose flux at both left and right boundaries
+WAVEMAKER = FLUX_LR
+AMP = 0.65
+PER = 10.5
+DEP = 13.1794
+THETA = 0.0
+
+! ----------------------INTERNAL WAVEMAKER--------------------------------
+! parameters for internal wavemaker
+Xsource_West = 420.0
+Xsource_East = 426.0
+Ysource_Suth = 0.0
+Ysource_Nrth = 1000.0
+
+! ---------------------PARAMETERS FOR JONSWAP SPECTRUM------------------
+! Hm0 - significant wave height
+! Tp - peak wave period
+! Freq_Min - minimum wave frequency
+! Freq_Max - maximum wave frequency
+! NumFreq - number of frequency discretizations
+Hm0 = 0.075
+Tp = 1.5
+Freq_Min = 0.01
+Freq_Max = 2.5
+NumFreq = 30
+
+! ---------------- SPONGE LAYER ------------------------
+! DHI type sponge layer
+! need to specify widths of four boundaries and parameters
+! set width=0.0 if no sponge
+! R_sponge: decay rate
+! A_sponge: maximum decay rate
+! e.g., sharp: R=0.85, A=5.0
+!       mild: R=0.90, A=5.0
+!       very mild: R=0.95, A=5.0
+SPONGE_ON = F
+Sponge_West_Width =  0.0
+Sponge_East_Width =  100.0
+Sponge_South_Width = 0.0
+Sponge_North_Width = 0.0
+R_Sponge = 0.95
+A_Sponge = 5.0
+
+! ------------------WAVE AVERAGE CONTROL--------------------------
+WAVE_AVERAGE_ON = F
+WAVE_AVERAGE_START = 370.0
+WAVE_AVERAGE_END = 1000.0
+WaveheightID = 2
+
+! ------------------SEDIMENT PARAMETERS---------------------------
+! parameters for sediment module
+! Sed_Type = 'COHESIVE' or 'NON-COHESIVE'
+! Sed_Load = 'SUSPENDED' or 'BED-LOAD'
+Sed_Type = 'NON-COHESIVE'
+Sed_Load = 'SUSPENDED'
+COUPLE_FS = F
+Af = 0.0
+D50 = 2.0e-3
+ntyws = 2
+Sedi_Ws = 0.02
+Shields_c = 0.05
+Tau_ce = 0.4
+Tau_cd = 0.2
+Erate = 1.0e-4
+Mud_Visc = 1.e-6
+Tim_Sedi = 0.0
+BED_CHANGE = F
+
+! -------------------VEGETATION PARAMETERS------------------------
+! parameters for vegetation module
+Veg_Type = FLEXIBLE
+Veg_X0 = 1.0
+Veg_Xn = 10.3
+Veg_Y0 = 0.0
+Veg_Yn = 1.0
+VegH = 0.2
+VegDens = 30.0
+Vegbv = 2.4e-4
+VegDrag = 0.21
+EI = 8.0e-7
+
+! -------------------LANDSLIDE PARAMETERS------------------------
+! parameters for landslide module
+! SlideType = 'RIGID' or 'DEFORMABLE'
+! SlideT: thickness; SlideL: length; SlideW: width
+! SlideD: initial slide depth
+! SlideAngle: slide angle
+! SlideX0,SlideY0: initial location
+! SlideUt,SlideA0: rigid landslide kinematics
+! SlideDens: deformable landslide density
+SlideType = DEFORMABLE
+SlideT = 24.0
+SlideL = 686.0
+SlideW = 343.0
+SlideD = 120.0
+SlideAngle = 4.0
+SlideX0 = 3044.47
+SlideY0 = 0.0
+SlideUt = 27.09
+SlideA0 = 0.36
+SlideDens = 2000.
+
+! --------------------RHEOLOGY-----------------------------------
+RHEOLOGY_ON = F
+Yield_Stress = 10.
+Plastic_Visc = 0.0
+
+! --------------------PROBE OUTPUT---------------------------------
+! output variables at stations which are given in file stat.txt
+NSTAT = 0
+PLOT_INTV_STAT = 0.1
+
+! -----------------------NHWAVE OUTPUT-----------------------
+! output variables, T=.TRUE, F = .FALSE.
+! OUT_H = water depth
+! OUT_E = surface elevation
+! OUT_U = velocity in x direction
+! OUT_V = velocity in y direction
+! OUT_W = velocity in z direction
+! OUT_U0 = velocity in x direction for former time step
+! OUT_V0 = velocity in y direction for former time step
+! OUT_P = dynamic pressure
+! OUT_K = turbulent kinetic energy
+! OUT_D = turbulent dissipation rate
+! OUT_S = shear production
+! OUT_C = eddy viscosity
+! OUT_B = bubble void fraction
+! OUT_A = wave breaking distribution
+! OUT_T = bottom shear stress
+! OUT_BDX = x-direction bottom drag 
+! OUT_BDY = y-direction bottom drag
+! OUT_F = sediment concentration
+! OUT_G = bed elevation
+! OUT_I = salinity
+! OUT_RHO = density
+OUT_H = T
+OUT_E = T
+OUT_U = T
+OUT_V = T
+OUT_W = T
+OUT_U0 = F
+OUT_V0 = F
+OUT_P = F
+OUT_K = F
+OUT_D = F
+OUT_S = F
+OUT_C = F
+OUT_B = F
+OUT_A = F
+OUT_T = F
+OUT_BDX = F
+OUT_BDY = F
+OUT_F = F
+OUT_G = F
+OUT_I = T
+OUT_RHO = T
+!------------- WAVE AVERAGED OUTPUT ---------------------
+! OUT_EW = wave set-down
+! OUT_VFX = x-direction vortex force
+! OUT_VFY = y-direction vortex force
+! OUT_VFZ = z-direction vortex force
+! OUT_BH = bernoulli head
+! OUT_BHX = x-direction bernoulli head gradient
+! OUT_BHY = y-direction bernoulli head gradient
+! OUT_BHZ = z-direction bernoulli head gradient
+! OUT_WPX = x-direction wave pressure gradient
+! OUT_WPY = y-direction wave pressure gradient
+! OUT_WPZ = z-direction wave pressure gradient
+! OUT_DISX = x-direction wave dissipation force
+! OUT_DISY = y-direction wave dissipation force
+! OUT_PWAV = wave induced quasi-static pressure
+! OUT_USTK = x-direction stokes drift velocity
+! OUT_VSTK = y-direction stokes drift velocity
+! OUT_WSTK = z-direction stokes drift velocity
+! OUT_QX = x-direction stokes transport
+! OUT_QY = y-direction stokes transport
+OUT_EW = T
+OUT_VFX = T
+OUT_VFY = T
+OUT_VFZ = T
+OUT_BH = T
+OUT_BHX = T
+OUT_BHY = T
+OUT_BHZ = T
+OUT_WPX = F
+OUT_WPY = F
+OUT_WPZ = F
+OUT_DISX = T
+OUT_DISY = T
+OUT_PWAV = F
+OUT_USTK = T
+OUT_VSTK = T
+OUT_WSTK = T
+OUT_QX = F
+OUT_QY = F
+!------------------------NHWAVE to SWAN-------------------------------------
+! OUT_USW = x-direction mean current passed to SWAN
+! OUT_VSW = y-direction mean current passed to SWAN
+OUT_USW = T
+OUT_VSW = T
+!-----------------------------USE FOR TEST----------------------------------
+! Output for longshore current problem
+!
+! x-direction momentum equation
+! OUT_R2 = total RHS terms in x-momentum equation 
+! OUT_FXX = x-advection term: d(D*U*U+ 1/2*g*Eta^2+g*h*Eta)/dx
+! OUT_FYY = z-advection term: d(D*U*V)/dx
+! OUT_FZZ  = z-advection term: d(U*Omega)/dsig
+! OUT_FCORX = x earth rotation term
+! OUT_DRHOX = x baroclinic term
+! OUT_SOURX = x-direction source term
+! OUT_DIFXX = diffusion xx term
+! OUT_DIFXY = diffusion xy term
+! OUT_EXFORX =x external force term including vortex force,
+!              bernoulli head gradient and wave dissipation
+OUT_R2 = F
+OUT_FXX = F
+OUT_FYY = F
+OUT_FZZ = F
+OUT_FCORX = F
+OUT_DRHOX = F
+OUT_SOURX = F
+OUT_DIFXX = F
+OUT_DIFXY = F
+OUT_EXFORX = F
+
+! y-direction momentum equation 
+! First all terms summation R3, then one by one
+! OUT_R3 = total RHS terms in y-momentum equation 
+! OUT_GXX = x-advection term: d(D*U*V)/dx
+! OUT_GYY = y-advection term: d(D*V*V+ 1/2*g*Eta^2+g*h*Eta)/dy
+! OUT_GZZ  = z-advection term: d(V*Omega)/dsig
+! OUT_FCOR = earth rotation term
+! OUT_DRHOY = baroclinic term
+! OUT_SOURY = source term
+! OUT_DIFYX = diffusion yx term
+! OUT_DIFYY = diffusion yy term
+! OUT_EXFORY = external force term including vortex force, 
+!              bernoulli head gradient and wave dissipation
+OUT_R3 = F
+OUT_GXX = F
+OUT_GYY = F
+OUT_GZZ = F
+OUT_FCORY = F
+OUT_DRHOY = F
+OUT_SOURY = F
+OUT_DIFYX = F
+OUT_DIFYY = F
+OUT_EXFORY = F
+
+! end of file                                                                                        
+

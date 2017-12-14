@@ -1,0 +1,1212 @@
+! main_pass.fnw
+!------------------------------------------------------------------------
+!      main_pass.fnw contains subroutines passing variables between 
+!      NHWAVE and SWAN 
+!     
+!      Subrountine included:
+!
+!      GET_COUPLING_NEEDS
+!      NHWAVE2SWAN
+!      GATHER_NW2GLOBAL
+!      SWAN2NHWAVE 
+!      DISTRIBUTE2NHWAVE
+!      GATHER_SWAN2GLOBAL
+!      DISTRIBUTE2SWAN
+!       
+!      Module used:
+!      
+!      OUTP_DATA (SWAN)
+!      SWAN_COMMON (SWAN)
+!      PARAM  (Couple)
+!      GLOBAL (NHWAVE) 
+!      PASS   (Couple)
+!      SWCOMM3 (SWAN)
+!      M_PARALL (SWAN)
+!
+!------------------------------------------------------------------------
+SUBROUTINE GET_COUPLING_NEEDS (COMPDA_C,KGRPNT_C,XCGRID_C,YCGRID_C,  &
+                 MXK,MYK,VOQR_C,VOQ_C)
+!-------------------------------------------------------------------------
+! Subroutine get_coupling_needs is not being used. 
+!
+! MXK: integer, output number of output points in x-direction
+! MYK: integer, output number of output points in y-direction
+! 
+!
+!------------------------------------------------------------------------
+      USE OUTP_DATA                                                       
+      USE SWAN_COMMON
+      IMPLICIT NONE
+      REAL COMPDA_C(MCGRD,MCMVAR),XCGRID_C(MXC,MYC),YCGRID_C(MXC,MYC)
+      integer KGRPNT_C(MXC,MYC),MXK,MYK
+      integer VOQR_C(*)
+      real VOQ_C(MXK*MYK,*)
+
+       write(*,*) MXC,MYC,MXK,MYK
+
+END SUBROUTINE GET_COUPLING_NEEDS
+
+SUBROUTINE NHWAVE2SWAN
+      USE SWAN_COMMON
+      USE PARAM
+      USE PASS
+      USE GLOBAL, ONLY : Mloc,Nloc,Kloc,Umean,Vmean,Eta, &
+                         Mglob,Nglob,Kglob,TIME,U,V,W,Nghost, &
+                         Jbeg,Jend,Ibeg,Iend,Kbeg,Kend
+      IMPLICIT NONE
+      INTEGER :: i,j,k,iglob,jglob
+      REAL(SP),DIMENSION(Mglob,Nglob)::UaGlob,VaGlob
+      REAL(SP),DIMENSION(Mglob,Nglob,Kglob)::U3DGlob,V3DGlob,W3DGlob
+      REAL(SP),DIMENSION(MXC,MYC)::EtaSW,USW,VSW
+      character(len=80) :: file=''
+
+! print out Eta from NHWAVE
+
+!      file='EtaNW'
+!      call putfile2D(file,Eta)
+
+!  first call to pass, initialize NHWAVE variables passing to SWAN
+
+        IF(FIRST_CALL_PASS_NW)THEN
+          FIRST_CALL_PASS_NW = .FALSE.
+          IF(.NOT.ALLOCATED(GRID_ANGLE_SW2NW)) &
+             ALLOCATE(GRID_ANGLE_SW2NW(MXC,MYC))
+          GRID_ANGLE_SW2NW = ZERO
+          DO IY=1,MYC
+          DO IX=1,MXC-1
+           GRID_ANGLE_SW2NW(IX,IY)= &
+           ATAN2(YCGRID(IX+1,IY)-YCGRID(IX,IY),XCGRID(IX+1,IY)-XCGRID(IX,IY))
+          ENDDO
+          ENDDO
+          DO IY=1,MYC
+           GRID_ANGLE_SW2NW(MXC,IY)=GRID_ANGLE_SW2NW(MXC-1,IY)
+          ENDDO
+          
+          UaGlob = ZERO 
+          VaGlob = ZERO
+          EtaSW = ZERO
+          USW = ZERO
+          VSW = ZERO
+          U3DGlob = ZERO
+          V3DGlob = ZERO
+          W3DGlob = ZERO
+        ENDIF
+
+!  WC_LAG is wave-current interaction delay time by fyshi
+
+       IF(TIME.GE.WC_LAG)THEN 
+# if defined (PARALLEL)
+
+ ! parallel function is for Global
+        CALL GATHER_NW2GLOBAL(Eta,VaGlob)
+        CALL PERIODIC_IN_Y(VaGlob)
+        CALL DISTRIBUTE2SWAN(VaGlob,EtaSW)
+
+     IF(KC_CURR)THEN      
+        CALL PHI_2D_COLL(U_kc)
+        CALL PHI_2D_COLL(V_kc) 
+        CALL GATHER_NW2GLOBAL(U_kc,UaGlob)
+        CALL GATHER_NW2GLOBAL(V_kc,VaGlob)
+     ELSE
+	CALL PHI_2D_COLL(Umean)
+        CALL PHI_2D_COLL(Vmean)
+        CALL GATHER_NW2GLOBAL(Umean,UaGlob)
+        CALL GATHER_NW2GLOBAL(Vmean,VaGlob)
+     ENDIF
+
+! print out Eta from SWAN
+!     if (INODE.eq.2) then
+!        open(5,file='U_kc')
+!        do j = 1,Nloc
+!          write(5,100) (U_kc(i,j),i=1,Mloc)
+!        enddo
+!        close(5)
+!     endif
+
+! print out Eta from SWAN
+!     if (INODE.eq.1) then
+!        open(5,file='UaGlob')
+!        do j = 1,Nglob
+!          write(5,100) (UaGlob(i,j),i=1,Mglob)
+!        enddo
+!        close(5)
+!     endif
+
+        CALL PERIODIC_IN_Y(UaGlob)
+        CALL PERIODIC_IN_Y(VaGlob)
+
+        UaGlob=UaGlob*MASK_WC_INTERACT
+        CALL DISTRIBUTE2SWAN(UaGlob,USW)
+      
+        VaGlob=VaGlob*MASK_WC_INTERACT
+        CALL DISTRIBUTE2SWAN(VaGlob,VSW)
+
+! print out Eta from SWAN
+!     if (INODE.eq.1) then
+!        open(5,file='USW')
+!        do j = 1,MYC
+!          write(5,100) (USW(i,j),i=1,MXC)
+!        enddo
+!        close(5)
+!     endif
+
+
+! For Langmuir circulation only, make u,v,w symetric
+!        CALL GATHER3D_NW2GLOBAL(U,U3DGlob)
+!        CALL GATHER3D_NW2GLOBAL(V,V3DGlob)
+!        CALL GATHER3D_NW2GLOBAL(W,W3DGlob)
+ 
+! Make u, w symetric, v anti-symetric
+!        do i = 1,Mglob
+!        do j = 1,Nglob/2
+!        do k = 1,Kglob
+!           U3DGlob(i,j+Nglob/2,k) = U3DGlob(i,j,k)
+!           V3DGlob(i,j+Nglob/2,k) = -V3DGlob(i,j,k)
+!           W3DGlob(i,j+Nglob/2,k) = W3DGlob(i,j,k)                  
+!        enddo
+!        enddo
+!        enddo
+
+! assign global to local
+
+!       do j = Jbeg,Jend
+!       do i = Ibeg,Iend
+!       do k = Kbeg,Kend
+!         iglob = npx*(Mloc-2*Nghost)+i-Nghost
+!         jglob = npy*(Nloc-2*Nghost)+j-Nghost
+!         U(i,j,k) = U3DGlob(iglob,jglob,k)
+!         V(i,j,k) = V3DGlob(iglob,jglob,k)
+!         W(i,j,k) = W3DGlob(iglob,jglob,k)
+!       enddo
+!       enddo
+!       enddo
+
+!        CALL DISTRIBUTE2NHWAVE3D(U3DGlob,U)
+!        CALL DISTRIBUTE2NHWAVE3D(V3DGlob,V)
+!        CALL DISTRIBUTE2NHWAVE3D(W3DGlob,W)
+
+# else
+ ! serical run 
+ ! serial function is for NHWAVE variables
+        CALL PERIODIC_IN_Y(Eta)
+        CALL DISTRIBUTE2SWAN(Eta,EtaSW)
+
+! print out Eta from SWAN
+!        open(5,file='U_kc')
+!        do j = 1,Nloc
+!          write(5,100) (U_kc(i,j),i=1,Mloc)
+!        enddo
+!        close(5)
+
+! print out Eta from SWAN
+!        open(5,file='Eta')
+!        do j = 1,Nloc
+!          write(5,100) (Eta(i,j),i=1,Mloc)
+!        enddo
+!        close(5)
+
+
+     IF(KC_CURR)THEN
+        CALL PERIODIC_IN_Y(U_kc)
+        CALL PERIODIC_IN_Y(V_kc)
+
+        CALL DISTRIBUTE2SWAN(U_kc,USW)
+        CALL DISTRIBUTE2SWAN(V_kc,VSW)
+     ELSE
+        CALL PERIODIC_IN_Y(Umean)
+        CALL PERIODIC_IN_Y(Vmean)
+
+        CALL DISTRIBUTE2SWAN(Umean,USW)
+        CALL DISTRIBUTE2SWAN(Vmean,VSW)
+     ENDIF
+
+! print out Eta from SWAN
+!        open(5,file='U_kc2')
+!        do j = 1,Nloc
+!          write(5,100) (U_kc(i,j),i=1,Mloc)
+!        enddo
+!        close(5)
+
+! for Langmuir circulation only
+
+! Make u, w symetric, v anti-symetric
+!        do i = 1,Mloc
+!        do j = 1,Nloc/2
+!        do k = 1,Kloc
+!           U(i,j+Nloc/2,k) = U(i,j,k)
+!           V(i,j+Nloc/2,k) = -V(i,j,k)
+!           W(i,j+Nloc/2,k) = W(i,j,k)
+!        enddo
+!        enddo
+!        enddo
+
+# endif
+
+! print out Eta from SWAN 
+!        open(5,file='EtaSW')
+!        do j = 1,MYC
+!          write(5,100) (EtaSW(i,j),i=1,MXC)
+!        enddo
+!        close(5)
+
+! print out USW from SWAN
+!        open(5,file='USW')
+!        do j = 1,MYC
+!          write(5,100) (USW(i,j),i=1,MXC)
+!        enddo
+!        close(5)
+
+! print out VSW from SWAN
+!        open(5,file='VSW')
+!        do j = 1,MYC
+!          write(5,100) (VSW(i,j),i=1,MXC)
+!        enddo
+!        close(5)
+
+100 FORMAT(5000E16.6)
+
+! MXCGL = Mglob, MYCGL = Nglob
+! but MXC is not equal to Mloc, MYC is not equal to Nloc
+! seems like SWAN has three ghost cells in MXC, 0 ghost cell in MYC
+! NHWAVE has two ghost cells in both MXC and MYC
+
+!do j=1,MYC
+!do i=1,MXC
+!  write(*,*) MXC,MYC,MXCGL,MYCGL,Mglob,Nglob,Mloc,Nloc
+!  write(*,*) EtaSW(i,j),Eta(i+Nghost,j+Nghost)
+!  write(*,*) USW(i,j),U_kc(i+Nghost,j+Nghost)
+!  write(*,*) VSW(i,j),V_kc(i+Nghost,j+Nghost)
+!enddo
+!enddo
+
+! assign to previous time level
+        DO INDX = 2, MCGRD
+          COMPDA(INDX,JWLV1)=COMPDA(INDX,JWLV2)
+          COMPDA(INDX,JVX1)=COMPDA(INDX,JVX2)
+          COMPDA(INDX,JVY1)=COMPDA(INDX,JVY2)
+        ENDDO
+         DO IX=1,MXC
+         DO IY=1,MYC
+          INDX=KGRPNT(IX,IY)
+          IF(INDX.GT.1)THEN
+           COMPDA(INDX,JWLV2)=EtaSW(IX,IY)*1.0
+           COMPDA(INDX,JVX2)=USW(IX,IY)*COS(GRID_ANGLE_SW2NW(IX,IY))*1.0 &
+                            +VSW(IX,IY)*SIN(GRID_ANGLE_SW2NW(IX,IY))*1.0
+           COMPDA(INDX,JVY2)=VSW(IX,IY)*COS(GRID_ANGLE_SW2NW(IX,IY))*1.0 &
+                            -USW(IX,IY)*SIN(GRID_ANGLE_SW2NW(IX,IY))*1.0
+          ENDIF
+         ENDDO
+         ENDDO
+
+       ENDIF ! WC_LAG
+
+END SUBROUTINE NHWAVE2SWAN
+
+# if defined (PARALLEL)
+SUBROUTINE GATHER_NW2GLOBAL(PHI,PHIGLOB)
+     USE PARAM
+     USE GLOBAL,ONLY : ier,MGlob,NGlob,Nghost,Mloc,Nloc, &
+                       npx,npy,myid,px,py,Ibeg,Iend,Jbeg,Jend
+     USE PASS
+     USE M_PARALL
+     IMPLICIT NONE
+     INTEGER :: l, i, j
+     INTEGER,DIMENSION(NPROC) :: npxs,npys
+     REAL(SP),DIMENSION(NPROC) :: xx
+     REAL(SP),DIMENSION(MGlob,NGlob),INTENT(OUT) :: PHIGLOB
+     REAL(SP),DIMENSION(MGlob+2*Nghost,NGlob+2*Nghost) :: PHIGLOB_GHOST
+     REAL(SP),DIMENSION(Mloc,Nloc),INTENT(IN) :: PHI
+
+     call MPI_Gather(npx,1,MPI_INTEGER,npxs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+     call MPI_Gather(npy,1,MPI_INTEGER,npys,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+
+     do i=1,Mloc
+     do j=1,Nloc
+        call MPI_Gather(PHI(i,j),1,MPI_SP,&
+             xx,1,MPI_SP,0,MPI_COMM_WORLD,ier)
+
+        if (j.eq.1) call MPI_Barrier(MPI_COMM_WORLD,ier)
+
+        if (myid.eq.0) then
+           do l=1,px*py
+              PHIGLOB_GHOST(i+npxs(l)*(Iend-Ibeg+1),&
+                   j+npys(l)*(Jend-Jbeg+1)) = xx(l)
+!              write(*,*) xx(l)
+           enddo
+        endif
+     enddo
+     enddo
+
+     DO J=1,NGlob
+     DO I=1,MGlob
+       PHIGLOB(I,J)=PHIGLOB_GHOST(I+Nghost,J+Nghost)
+     ENDDO
+     ENDDO
+
+END SUBROUTINE GATHER_NW2GLOBAL
+
+SUBROUTINE GATHER3D_NW2GLOBAL(PHI,PHIGLOB)
+     USE GLOBAL
+     USE PASS
+     USE M_PARALL
+     IMPLICIT NONE
+     real(SP),dimension(Mloc,Nloc,Kloc),intent(in) :: phi
+     integer,dimension(NPROC) :: npxs,npys
+     integer,dimension(1) :: req
+     real(SP),dimension(:,:),allocatable :: xx,philoc
+     real(SP),dimension(Mglob,Nglob,Kglob),intent(out) :: phiglob
+     integer,dimension(MPI_STATUS_SIZE,1) :: status
+     INTEGER :: i,j,k,jk,iglob,jglob,kk,n,len,nreq,NKloc
+
+     call MPI_Gather(npx,1,MPI_INTEGER,npxs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+     call MPI_Gather(npy,1,MPI_INTEGER,npys,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+
+    NKloc = Nloc*Kloc
+
+    ! put the data in master processor into the global var
+    if(myid==0) then
+      do k = Kbeg,Kend
+      do j = Jbeg,Jend
+      do i = Ibeg,Iend
+        iglob = i-Nghost
+        jglob = j-Nghost
+        kk = k-Nghost
+        phiglob(iglob,jglob,kk) = Phi(i,j,k)
+      enddo
+      enddo
+      enddo
+    endif
+
+    allocate(philoc(Mloc,NKloc))
+    allocate(xx(Mloc,NKloc))
+
+    do k = 1,Kloc
+    do j = 1,Nloc
+    do i = 1,Mloc
+      jk = (k-1)*Nloc+j
+      philoc(i,jk) = phi(i,j,k)
+    enddo
+    enddo
+    enddo
+
+    ! collect data from other processors into the master processor
+    len = Mloc*NKloc
+
+    do n = 1,NPROC-1
+      if(myid==0) then
+        call MPI_IRECV(xx,len,MPI_SP,n,0,MPI_COMM_WORLD,req(1),ier)
+        call MPI_WAITALL(1,req,status,ier)
+        do k = Kbeg,Kend
+        do j = Jbeg,Jend
+        do i = Ibeg,Iend
+          iglob = npxs(n+1)*(Iend-Ibeg+1)+i-Nghost
+          jglob = npys(n+1)*(Jend-Jbeg+1)+j-Nghost
+          kk = k-Nghost
+          jk = (k-1)*Nloc+j
+          phiglob(iglob,jglob,kk) = xx(i,jk)
+        enddo
+        enddo
+        enddo
+      endif
+
+      if(myid==n) then
+        call MPI_SEND(philoc,len,MPI_SP,0,0,MPI_COMM_WORLD,ier)
+      endif
+    enddo
+
+    deallocate(philoc)
+    deallocate(xx)
+
+END SUBROUTINE GATHER3D_NW2GLOBAL
+
+# endif
+
+SUBROUTINE SWAN2NHWAVE
+      USE SWAN_COMMON
+! SWAN_COMMON uses Module PASS
+      USE OUTP_DATA
+      USE GLOBAL, ONLY : Mloc,Nloc,TIME,Rho1
+# if defined (PARALLEL)
+      USE GLOBAL, ONLY : myid
+# endif
+      IMPLICIT NONE
+      integer :: i,j
+      character(len=80) :: file=''
+
+! wave height and bottom orbital velocity, dissipation
+! note: for dissipation in SWAN,
+! JDISS - total dissipation
+! JDSXB - bottom friction dissipation
+! JDSXS - surfzone breaking
+! JDSXW - whitecapping dissipation
+! get significant wave height, wave bottom velocity, Wave dissipation 
+
+! try to re-initialize the wave pass variables
+         WaveDissSW    = zero
+         WaveDissBrkSW = zero
+         WaveDissWcpSW = zero
+         WaveDissFrcSW = zero
+ 
+         DO IX=1,MXC
+         DO IY=1,MYC
+          INDX=KGRPNT(IX,IY)
+          WaveHeightSW(IX,IY)=COMPDA(INDX,JHS)
+          WaveUbottSW(IX,IY) =COMPDA(INDX,JUBOT)
+
+! Dissipation multiplied by gravity and density, equal to SWAN output values
+! According to ROMS, gravity and density are not needed to calculate wave vortex forces
+!          WaveDissSW(IX,IY) = COMPDA(INDX,JDISS)*9.81*Rho1
+!          WaveDissBrkSW(IX,IY) = COMPDA(INDX,JDSXS)*9.81*Rho1
+!          WaveDissWcpSW(IX,IY) = COMPDA(INDX,JDSXW)*9.81*Rho1
+!          WaveDissFrcSW(IX,IY) = COMPDA(INDX,JDSXB)*9.81*Rho1
+
+          WaveDissSW(IX,IY)    = REAL(COMPDA(INDX,JDISS),SP)
+          WaveDissBrkSW(IX,IY) = REAL(COMPDA(INDX,JDSXS),SP)
+          WaveDissWcpSW(IX,IY) = REAL(COMPDA(INDX,JDSXW),SP)
+          WaveDissFrcSW(IX,IY) = REAL(COMPDA(INDX,JDSXB),SP)
+          WaveFrcBrkSW(IX,IY)  = REAL(COMPDA(INDX,JQB),SP)
+          MeanFlowUSW(IX,IY)   = REAL(COMPDA(INDX,JVX1),SP)
+          MeanFlowVSW(IX,IY)   = REAL(COMPDA(INDX,JVY1),SP)
+          MeanElevSW(IX,IY)    = REAL(COMPDA(INDX,JWLV1),SP)
+
+         ENDDO
+         ENDDO
+        
+
+!         open(5,file='WaveHeightSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveHeightSW(i,j),i=1,MXC)
+!         enddo
+!         close(5) 
+          
+!         open(5,file='WaveDissBrkSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveDissBrkSW(i,j),i=1,MXC)
+!         enddo
+!         close(5)
+!        
+!         open(5,file='WaveDissWcpSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveDissWcpSW(i,j),i=1,MXC)
+!         enddo
+!         close(5)
+
+!         open(5,file='WaveDissFrcSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveDissFrcSW(i,j),i=1,MXC)
+!         enddo
+!         close(5)
+
+!         open(5,file='WaveDissSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveDissSW(i,j),i=1,MXC)
+!         enddo
+!         close(5) 
+
+100 FORMAT(5000E16.6)
+         
+!          open(5,file='WaveAngleSW')
+!         do j = 1,MYC
+!           write(5,100) (WaveAngleSW(i,j),i=1,MXC)
+!         enddo
+!         close(5)
+ 
+!         open(5,file='PeakAngleSW')
+!         do j = 1,MYC
+!           write(5,100) (PeakAngleSW(i,j),i=1,MXC)
+!         enddo
+!         close(5)
+
+# if defined (PARALLEL) 
+        CALL GATHER_SWAN2GLOBAL(WaveHeightSW,WaveHeightGL)
+	CALL PERIODIC_IN_Y(WaveHeightGL)
+        CALL DISTRIBUTE2NHWAVE(WaveHeightGL,WaveHeightNW)
+    
+        CALL GATHER_SWAN2GLOBAL(WaveUbottSW,WaveUbottGL)
+        CALL PERIODIC_IN_Y(WaveUbottGL)
+        CALL DISTRIBUTE2NHWAVE(WaveUbottGL,WaveUbottNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveDissSW,WaveDissGL)
+        CALL PERIODIC_IN_Y(WaveDissGL)
+        CALL DISTRIBUTE2NHWAVE(WaveDissGL,WaveDissNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveDissBrkSW,WaveDissBrkGL)
+        CALL PERIODIC_IN_Y(WaveDissBrkGL)
+        CALL DISTRIBUTE2NHWAVE(WaveDissBrkGL,WaveDissBrkNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveDissWcpSW,WaveDissWcpGL)
+        CALL PERIODIC_IN_Y(WaveDissWcpGL)
+        CALL DISTRIBUTE2NHWAVE(WaveDissWcpGL,WaveDissWcpNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveDissFrcSW,WaveDissFrcGL)
+        CALL PERIODIC_IN_Y(WaveDissFrcGL)
+        CALL DISTRIBUTE2NHWAVE(WaveDissFrcGL,WaveDissFrcNW)
+    
+        CALL GATHER_SWAN2GLOBAL(WaveAngleSW,WaveAngleGL)
+        CALL PERIODIC_IN_Y(WaveAngleGL)
+        CALL DISTRIBUTE2NHWAVE(WaveAngleGL,WaveAngleNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveFluxXSW,WaveFluxXGL)
+        CALL PERIODIC_IN_Y(WaveFluxXGL)
+        CALL DISTRIBUTE2NHWAVE(WaveFluxXGL,WaveFluxXNW)
+      
+        CALL GATHER_SWAN2GLOBAL(WaveFluxYSW,WaveFluxYGL)
+        CALL PERIODIC_IN_Y(WaveFluxYGL)
+        CALL DISTRIBUTE2NHWAVE(WaveFluxYGL,WaveFluxYNW)       
+       
+        CALL GATHER_SWAN2GLOBAL(PeakPeriodSW,PeakPeriodGL)
+        CALL PERIODIC_IN_Y(PeakPeriodGL)
+        CALL DISTRIBUTE2NHWAVE(PeakPeriodGL,PeakPeriodNW)
+       
+        CALL GATHER_SWAN2GLOBAL(PeakAngleSW,PeakAngleGL)
+        CALL PERIODIC_IN_Y(PeakAngleGL)
+        CALL DISTRIBUTE2NHWAVE(PeakAngleGL,PeakAngleNW)
+
+        CALL GATHER_SWAN2GLOBAL(WaveFrcBrkSW,WaveFrcBrkGL)
+        CALL PERIODIC_IN_Y(WaveFrcBrkGL)
+        CALL DISTRIBUTE2NHWAVE(WaveFrcBrkGL,WaveFrcBrkNW)
+
+        CALL GATHER_SWAN2GLOBAL(MeanFlowUSW,MeanFlowUGL)
+        CALL PERIODIC_IN_Y(MeanFlowUGL)
+        CALL DISTRIBUTE2NHWAVE(MeanFlowUGL,MeanFlowUNW)
+
+        CALL GATHER_SWAN2GLOBAL(MeanFlowVSW,MeanFlowVGL)
+        CALL PERIODIC_IN_Y(MeanFlowVGL)
+        CALL DISTRIBUTE2NHWAVE(MeanFlowVGL,MeanFlowVNW)
+
+        CALL GATHER_SWAN2GLOBAL(MeanElevSW,MeanElevGL)
+        CALL PERIODIC_IN_Y(MeanElevGL)
+        CALL DISTRIBUTE2NHWAVE(MeanElevGL,MeanElevNW)
+   
+# else
+        CALL DISTRIBUTE2NHWAVE(WaveHeightSW,WaveHeightNW)
+        CALL DISTRIBUTE2NHWAVE(WaveUbottSW,WaveUbottNW)
+        CALL DISTRIBUTE2NHWAVE(WaveDissSW,WaveDissNW)
+        CALL DISTRIBUTE2NHWAVE(WaveDissBrkSW,WaveDissBrkNW)
+        CALL DISTRIBUTE2NHWAVE(WaveDissWcpSW,WaveDissWcpNW)
+        CALL DISTRIBUTE2NHWAVE(WaveDissFrcSW,WaveDissFrcNW)
+        CALL DISTRIBUTE2NHWAVE(WaveAngleSW,WaveAngleNW)
+        CALL DISTRIBUTE2NHWAVE(WaveFluxXSW,WaveFluxXNW)
+        CALL DISTRIBUTE2NHWAVE(WaveFluxYSW,WaveFluxYNW)
+        CALL DISTRIBUTE2NHWAVE(PeakPeriodSW,PeakPeriodNW)
+        CALL DISTRIBUTE2NHWAVE(PeakAngleSW,PeakAngleNW)
+        CALL DISTRIBUTE2NHWAVE(WaveFrcBrkSW,WaveFrcBrkNW)
+        CALL DISTRIBUTE2NHWAVE(MeanFlowUSW,MeanFlowUNW)
+        CALL DISTRIBUTE2NHWAVE(MeanFlowVSW,MeanFlowVNW)
+        CALL DISTRIBUTE2NHWAVE(MeanElevSW,MeanElevNW)
+
+        CALL PERIODIC_IN_Y(WaveHeightNW)
+        CALL PERIODIC_IN_Y(WaveUbottNW)
+        CALL PERIODIC_IN_Y(WaveDissNW)
+        CALL PERIODIC_IN_Y(WaveDissBrkNW)
+        CALL PERIODIC_IN_Y(WaveDissWcpNW)
+        CALL PERIODIC_IN_Y(WaveDissFrcNW)
+        CALL PERIODIC_IN_Y(WaveAngleNW)
+        CALL PERIODIC_IN_Y(WaveFluxXNW)
+        CALL PERIODIC_IN_Y(WaveFluxYNW)
+        CALL PERIODIC_IN_Y(PeakPeriodNW)
+        CALL PERIODIC_IN_Y(PeakAngleNW)
+        CALL PERIODIC_IN_Y(WaveFrcBrkNW)
+        CALL PERIODIC_IN_Y(MeanFlowUNW)
+        CALL PERIODIC_IN_Y(MeanFlowVNW)
+        CALL PERIODIC_IN_Y(MeanElevNW)
+
+# endif   
+
+!        file='WaveHeightNW'
+!        call putfile2D(file,WaveHeightNW)
+
+!        file='WaveAngleNW'
+!        call putfile2D(file,WaveAngleNW)
+   
+!        file='PeakAngleNW'
+!        call putfile2D(file,PeakAngleNW)
+
+
+! wave force
+
+     IF(SWAN_RUN.OR.NHWAVE_RUN)THEN
+       IF(TIME.GE.WC_LAG)THEN 
+
+# if defined(PARALLEL) 
+        CALL GATHER_SWAN2GLOBAL(WaveFxSW,WaveFxGL)
+        CALL GATHER_SWAN2GLOBAL(WaveFySW,WaveFyGL)
+
+        WaveFxGL=WaveFxGL*MASK_WC_INTERACT
+        WaveFyGL=WaveFyGL*MASK_WC_INTERACT
+
+        CALL DISTRIBUTE2NHWAVE(WaveFxGL,WaveFxNW)
+        CALL DISTRIBUTE2NHWAVE(WaveFyGL,WaveFyNW)
+# else
+        CALL DISTRIBUTE2NHWAVE(WaveFxSW,WaveFxNW)
+        CALL DISTRIBUTE2NHWAVE(WaveFySW,WaveFyNW)
+
+# endif
+       ENDIF
+     ENDIF ! end nhwave_run = .true.
+
+END SUBROUTINE SWAN2NHWAVE
+
+# if defined(PARALLEL)
+
+SUBROUTINE DISTRIBUTE2NHWAVE(PHIGLOB_IN,PHI)
+     USE GLOBAL
+     IMPLICIT NONE
+     INTEGER :: l, i, j
+     INTEGER,DIMENSION(NPROC) :: npxs,npys
+     REAL(SP),DIMENSION(NPROC) :: xx
+     REAL(SP),DIMENSION(MGlob,NGlob),INTENT(IN) :: PHIGLOB_IN
+     REAL(SP),DIMENSION(MGlob,NGlob) :: PHIGLOB
+     REAL(SP),DIMENSION(MGlob+2*Nghost,NGlob+2*Nghost) :: PHIGL_GHOST
+     REAL(SP),DIMENSION(Mloc,Nloc),INTENT(OUT) :: PHI
+     REAL(SP) :: TMP_L,TMP_R
+     character(len=80) :: file='' 
+
+    IF(myid.eq.0)THEN
+      PHIGLOB=PHIGLOB_IN  
+
+    if(Num_Transit.ne.0)then
+! periodic
+
+    IF(PERIODIC_X)THEN
+      DO J=1,NGlob
+        TMP_L=PHIGLOB(MGlob-Num_Transit+1,J)
+        TMP_R=PHIGLOB(Num_Transit,J)
+        DO I=1,Num_Transit
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(I+Num_Transit-1)/(2.0*Num_Transit)
+        ENDDO
+        DO I=MGlob-Num_Transit,MGlob
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(I-MGlob+Num_Transit)/(2.0*Num_Transit)
+        ENDDO
+       ENDDO
+     ENDIF
+
+     IF(PERIODIC_Y)THEN
+       DO I=1,MGlob
+        TMP_L=PHIGLOB(I,NGlob-Num_Transit+1)
+        TMP_R=PHIGLOB(I, Num_Transit)
+        DO J=1,Num_Transit
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(J+Num_Transit-1)/(2.0*Num_Transit)
+        ENDDO
+        DO J=NGlob-Num_Transit,NGlob
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(J-NGlob+Num_Transit)/(2.0*Num_Transit)
+        ENDDO
+       ENDDO
+     ENDIF
+
+! end periodic
+     endif
+ 
+     DO J=Nghost+1,NGlob+NGhost
+     DO I=Nghost+1,MGlob+Nghost
+        PHIGL_GHOST(I,J) = PHIGLOB(I-Nghost,J-Nghost)
+     ENDDO
+     ENDDO
+
+! ghost cell
+        DO I=Nghost+1,MGlob+Nghost
+           DO J=1,Nghost
+              PHIGL_GHOST(I,J)=PHIGL_GHOST(I,Nghost+1)
+           ENDDO
+           DO J=NGlob+Nghost+1,NGlob+2*Nghost
+              PHIGL_GHOST(I,J)=PHIGL_GHOST(I,NGlob+Nghost)
+           ENDDO
+        ENDDO
+        DO J=1,NGlob+2*Nghost
+           DO I=1,Nghost
+              PHIGL_GHOST(I,J)=PHIGL_GHOST(Nghost+1,J)
+           ENDDO
+           DO I=MGlob+Nghost+1,MGlob+2*Nghost
+              PHIGL_GHOST(I,J)=PHIGL_GHOST(MGlob+Nghost,J)
+           ENDDO
+        ENDDO
+!     file='PHIGL_GHOST'
+!     call putfile2D(file,PHIGL_GHOST)
+     ENDIF ! end of myid=0
+
+! distribute
+     call MPI_Gather(npx,1,MPI_INTEGER,npxs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+     call MPI_Gather(npy,1,MPI_INTEGER,npys,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+       DO J=1,Nloc
+       DO I=1,Mloc   
+        if (myid.eq.0) then
+           do l=1,px*py
+              xx(l) = PHIGL_GHOST(i+npxs(l)*(Iend-Ibeg+1),&
+                   j+npys(l)*(Jend-Jbeg+1))
+           enddo
+        endif
+        call MPI_Scatter(xx,1,MPI_SP,&
+             PHI(i,j),1,MPI_SP,0,MPI_COMM_WORLD,ier)
+       ENDDO
+       ENDDO
+
+
+END SUBROUTINE DISTRIBUTE2NHWAVE
+
+SUBROUTINE DISTRIBUTE2NHWAVE3D(PHIGLOB_IN,PHI)
+     USE GLOBAL
+     IMPLICIT NONE
+     INTEGER :: l, i, j, k
+     INTEGER,DIMENSION(NPROC) :: npxs,npys
+     REAL(SP),DIMENSION(NPROC) :: xx
+     REAL(SP),DIMENSION(MGlob,NGlob,KGlob),INTENT(IN) :: PHIGLOB_IN
+     REAL(SP),DIMENSION(MGlob,NGlob,KGlob) :: PHIGLOB
+     REAL(SP),DIMENSION(MGlob+2*Nghost,NGlob+2*Nghost,KGlob+2*Nghost) :: PHIGL_GHOST
+     REAL(SP),DIMENSION(Mloc,Nloc,Kloc),INTENT(OUT) :: PHI
+     REAL(SP) :: TMP_L,TMP_R
+     character(len=80) :: file=''
+
+     PHI = zero
+
+    IF(myid.eq.0)THEN
+      PHIGLOB=PHIGLOB_IN
+
+
+     DO J=Nghost+1,NGlob+NGhost
+     DO I=Nghost+1,MGlob+Nghost
+     DO K=Nghost+1,KGlob+Nghost
+        PHIGL_GHOST(I,J,K) = PHIGLOB(I-Nghost,J-Nghost,K-Nghost)
+     ENDDO
+     ENDDO
+     ENDDO
+
+! ghost cell
+        DO I=Nghost+1,MGlob+Nghost
+        DO K=Nghost+1,KGlob+Nghost
+           DO J=1,Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(I,Nghost+1,K)
+           ENDDO
+           DO J=NGlob+Nghost+1,NGlob+2*Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(I,NGlob+Nghost,K)
+           ENDDO
+        ENDDO
+        ENDDO
+
+        DO J=1,NGlob+2*Nghost
+        DO K=Nghost+1,KGlob+Nghost
+           DO I=1,Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(Nghost+1,J,K)
+           ENDDO
+           DO I=MGlob+Nghost+1,MGlob+2*Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(MGlob+Nghost,J,K)
+           ENDDO
+        ENDDO
+        ENDDO
+
+        DO J=1,NGlob+2*Nghost
+        DO I=1,MGlob+2*Nghost
+           DO K=1,Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(I,J,Nghost+1)
+           ENDDO
+           DO K=KGlob+Nghost+1,KGlob+2*Nghost
+              PHIGL_GHOST(I,J,K)=PHIGL_GHOST(I,J,KGlob+Nghost)
+           ENDDO
+        ENDDO
+        ENDDO
+
+     ENDIF ! end of myid=0
+
+! distribute
+     call MPI_Gather(npx,1,MPI_INTEGER,npxs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+     call MPI_Gather(npy,1,MPI_INTEGER,npys,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+       DO J=1,Nloc
+       DO I=1,Mloc
+       DO K=1,Kloc
+        if (myid.eq.0) then
+           do l=1,px*py
+              xx(l) = PHIGL_GHOST(i+npxs(l)*(Iend-Ibeg+1),&
+                   j+npys(l)*(Jend-Jbeg+1),k)
+           enddo
+        endif
+        call MPI_Scatter(xx,1,MPI_SP,&
+             PHI(i,j,k),1,MPI_SP,0,MPI_COMM_WORLD,ier)
+       ENDDO
+       ENDDO
+       ENDDO
+
+
+END SUBROUTINE DISTRIBUTE2NHWAVE3D
+
+#else
+
+SUBROUTINE DISTRIBUTE2NHWAVE(PHIGLOB_IN,PHI)
+     USE PARAM
+     USE GLOBAL, ONLY : Mloc,Nloc,Nghost,Ibeg,Iend,Jbeg,Jend,&
+                      PERIODIC_X,PERIODIC_Y,Num_Transit,Mglob,Nglob
+     IMPLICIT NONE
+     INTEGER :: i, j
+     REAL(SP),DIMENSION(Mglob,Nglob),INTENT(IN) :: PHIGLOB_IN
+     REAL(SP),DIMENSION(Mglob,Nglob) :: PHIGLOB
+     REAL(SP),DIMENSION(Mloc,Nloc),INTENT(OUT) :: PHI
+     REAL(SP) :: TMP_L, TMP_R
+
+     PHIGLOB=PHIGLOB_IN
+
+     if(Num_Transit.ne.0)then
+
+     IF(PERIODIC_X)THEN
+       DO J=1,NGlob
+        TMP_L=PHIGLOB(MGlob-Num_Transit+1,J)
+        TMP_R=PHIGLOB(Num_Transit,J)
+        DO I=1,Num_Transit
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(I+Num_Transit-1)/(2.0*Num_Transit)
+        ENDDO
+        DO I=MGlob-Num_Transit,MGlob
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(I-MGlob+Num_Transit)/(2.0*Num_Transit)
+        ENDDO
+       ENDDO
+     ENDIF
+
+     IF(PERIODIC_Y)THEN
+       DO I=1,MGlob
+        TMP_L=PHIGLOB(I,NGlob-Num_Transit+1)
+        TMP_R=PHIGLOB(I, Num_Transit)
+        DO J=1,Num_Transit
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(J+Num_Transit-1)/(2.0*Num_Transit)
+        ENDDO
+        DO J=NGlob-Num_Transit,NGlob
+          PHIGLOB(I,J)=TMP_L+(TMP_R-TMP_L)*(J-NGlob+Num_Transit)/(2.0*Num_Transit)
+        ENDDO
+       ENDDO
+     ENDIF
+
+     endif
+
+     DO J=Jbeg,Jend
+     DO I=Ibeg,Iend
+       PHI(I,J)=PHIGLOB(I-Ibeg+1,J-Jbeg+1)
+     ENDDO
+     ENDDO
+
+! ghost cells
+     DO I=Ibeg,Iend
+       DO J=1,Nghost
+        PHI(I,J)=PHI(I,Jbeg)
+       ENDDO
+       DO J=Jend+1,Nloc
+        PHI(I,J)=PHI(I,Jend)
+       ENDDO
+     ENDDO
+
+     DO J=1,Nloc
+       DO I=1,Nghost
+        PHI(I,J)=PHI(Ibeg,J)
+       ENDDO
+       DO I=Iend+1,Mloc
+        PHI(I,J)=PHI(Iend,J)
+       ENDDO
+     ENDDO
+
+
+END SUBROUTINE DISTRIBUTE2NHWAVE
+
+# endif
+
+# if defined(PARALLEL)
+SUBROUTINE GATHER_SWAN2GLOBAL(PHI,PHIGLOB)
+
+      USE PARAM
+      USE GLOBAL
+      USE SWCOMM3
+      USE M_PARALL 
+! M_PARALL defines NPROC
+      USE PASS
+      IMPLICIT NONE
+      INTEGER,DIMENSION(:),ALLOCATABLE :: MXCs,MYCs 
+
+      INTEGER :: l,IDIR
+
+      REAL(SP),DIMENSION(NPROC) :: xx
+      REAL(SP),DIMENSION(MXCGL,MYCGL),INTENT(OUT) :: PHIGLOB
+      REAL(SP),DIMENSION(MXC,MYC),INTENT(IN) :: PHI
+
+      IF(FIRST_CALL_SW2NW)THEN
+        FIRST_CALL_SW2NW=.FALSE.
+
+      IF(.NOT.ALLOCATED(MXFs)) ALLOCATE(MXFs(NPROC))
+      IF(.NOT.ALLOCATED(MYFs)) ALLOCATE(MYFs(NPROC))
+      IF(.NOT.ALLOCATED(IXTRIM_Ls)) ALLOCATE(IXTRIM_Ls(NPROC))
+      IF(.NOT.ALLOCATED(IYTRIM_Ls)) ALLOCATE(IYTRIM_Ls(NPROC))
+      IF(.NOT.ALLOCATED(IXTRIM_Rs)) ALLOCATE(IXTRIM_Rs(NPROC))
+      IF(.NOT.ALLOCATED(IYTRIM_Rs)) ALLOCATE(IYTRIM_Rs(NPROC))
+
+! find relation between different processes
+! SWAN distribute processors in the longer direction of x,y
+
+      IF ( MXCGL.GT.MYCGL ) THEN
+         IDIR = 2  ! cut in x direction
+      ELSE
+         IDIR = 1  ! cut in y direction
+      END IF 
+                                             
+! gather together values from a group of processes
+! MXF: starting address of send buffer 
+! 1: number of elements in send buffer
+! MPI_INTEGER: data type of send buffer elements
+! MXFs: address of receive buffer
+! 1: number of elements for any single receive
+! MPI_INTEGER: data type of receive buffer elements 
+! 0: rank of receiving process
+! MPI_COMM_WORLD: communicator 
+! ier: error 
+
+       call MPI_Gather(MXF,1,MPI_INTEGER,MXFs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+       call MPI_Gather(MYF,1,MPI_INTEGER,MYFs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+
+        IXTRIM_L=0
+        IYTRIM_L=0
+        IXTRIM_R=0
+        IYTRIM_R=0
+
+        IF (IDIR.EQ.2)THEN ! cut in x-direction
+           IF(INODE.NE.1)IXTRIM_L=3
+           IF(INODE.NE.NPROC)IXTRIM_R=3
+        ELSE
+           IF(INODE.NE.1)IYTRIM_L=3
+           IF(INODE.NE.NPROC)IYTRIM_R=3
+        ENDIF
+
+ 
+        call MPI_Gather(IXTRIM_L,1,MPI_INTEGER,IXTRIM_Ls,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IXTRIM_R,1,MPI_INTEGER,IXTRIM_Rs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IYTRIM_L,1,MPI_INTEGER,IYTRIM_Ls,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IYTRIM_R,1,MPI_INTEGER,IYTRIM_Rs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)      
+
+! this coupling algorithm requires grid number (longer one) be divided by nproc
+! I make a warning in case not satisfy the requirement
+
+         IF (IDIR.EQ.2)THEN
+
+           call MPI_Gather(MXC,1,MPI_INTEGER,MXCs,1,MPI_INTEGER,&
+               0,MPI_COMM_WORLD,ier)
+           IF(INODE.EQ.1)THEN
+             DO l=1,NPROC
+              IF(MXCs(l)-IXTRIM_Rs(l)-IXTRIM_Ls(l) &
+              .NE.MXCs(1)-IXTRIM_Rs(1)-IXTRIM_Ls(1))THEN
+                WRITE(*,*)'Grid number(in X direction) can NOT be divided by NPROC'
+                WRITE(*,*)'Please STOP the program and reset NPROC'
+              ENDIF
+!WRITE(*,*)l,MXCs(l)-IXTRIM_Rs(l)-IXTRIM_Ls(l),MXCs(l),IXTRIM_Rs(l),IXTRIM_Ls(l)
+             ENDDO
+           ENDIF
+
+         ELSE
+
+           call MPI_Gather(MYC,1,MPI_INTEGER,MYCs,1,MPI_INTEGER,&
+               0,MPI_COMM_WORLD,ier)
+           IF(INODE.EQ.1)THEN
+             DO l=1,NPROC
+              IF(MYCs(l)-IYTRIM_Rs(l)-IYTRIM_Ls(l) &
+              .NE.MYCs(1)-IYTRIM_Rs(1)-IYTRIM_Ls(1))THEN
+               WRITE(*,*)'Grid number(in Y direction) can NOT be divided by NPROC'
+               WRITE(*,*)'Please STOP the program and reset NPROC'
+              ENDIF
+!WRITE(*,*)l,MYCs(l)-IYTRIM_Rs(l)-IYTRIM_Ls(l)
+             ENDDO
+           ENDIF
+
+         ENDIF
+         DEALLOCATE(MXCs,MYCs)
+
+
+       ENDIF ! end first_call
+
+
+       do IX=IXTRIM_L+1,MXC-IXTRIM_R
+       do IY=IYTRIM_L+1,MYC-IYTRIM_R
+          call MPI_Gather(PHI(IX,IY),1,MPI_SP,&
+             xx,1,MPI_SP,0,MPI_COMM_WORLD,ier)
+       
+          if (IY.eq.IYTRIM_L+1) call MPI_Barrier(MPI_COMM_WORLD,ier)
+
+          if (INODE.eq.1) then
+
+             do l=1,NPROC
+               PHIGLOB(MXFs(l)+IX-1+IXTRIM_Ls(l),MYFs(l)+IY-1+IYTRIM_Ls(l))=xx(l)
+             enddo
+          endif
+
+       enddo
+       enddo
+
+END SUBROUTINE GATHER_SWAN2GLOBAL
+# endif
+
+# if defined(PARALLEL)
+SUBROUTINE DISTRIBUTE2SWAN(PHIGLOB,PHI)
+      USE SWAN_COMMON
+      IMPLICIT NONE
+      INTEGER :: l,IDIR, ier
+      REAL(SP),DIMENSION(NPROC) :: xx
+      REAL(SP),DIMENSION(MXCGL,MYCGL),INTENT(IN) :: PHIGLOB
+      REAL(SP),DIMENSION(MXC,MYC),INTENT(OUT) :: PHI
+
+! the following may be performed in DISTRIBUTE2SWAN
+
+      IF(FIRST_CALL_SW2NW)THEN
+        FIRST_CALL_SW2NW=.FALSE.
+      IF(.NOT.ALLOCATED(MXFs)) ALLOCATE(MXFs(NPROC))
+      IF(.NOT.ALLOCATED(MYFs)) ALLOCATE(MYFs(NPROC))
+      IF(.NOT.ALLOCATED(IXTRIM_Ls)) ALLOCATE(IXTRIM_Ls(NPROC))
+      IF(.NOT.ALLOCATED(IYTRIM_Ls)) ALLOCATE(IYTRIM_Ls(NPROC))
+      IF(.NOT.ALLOCATED(IXTRIM_Rs)) ALLOCATE(IXTRIM_Rs(NPROC))
+      IF(.NOT.ALLOCATED(IYTRIM_Rs)) ALLOCATE(IYTRIM_Rs(NPROC))
+
+
+! find relation between different processes
+
+      IF ( MXCGL.GT.MYCGL ) THEN
+         IDIR = 2  ! cut in x direction
+      ELSE
+         IDIR = 1
+      END IF 
+
+       call MPI_Gather(MXF,1,MPI_INTEGER,MXFs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+       call MPI_Gather(MYF,1,MPI_INTEGER,MYFs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)
+      
+
+        IXTRIM_L=0
+        IYTRIM_L=0
+        IXTRIM_R=0
+        IYTRIM_R=0
+
+        IF (IDIR.EQ.2)THEN
+           IF(INODE.NE.1)IXTRIM_L=3
+           IF(INODE.NE.NPROC)IXTRIM_R=3
+        ELSE
+           IF(INODE.NE.1)IYTRIM_L=3
+           IF(INODE.NE.NPROC)IYTRIM_R=3
+        ENDIF
+
+ 
+        call MPI_Gather(IXTRIM_L,1,MPI_INTEGER,IXTRIM_Ls,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IXTRIM_R,1,MPI_INTEGER,IXTRIM_Rs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IYTRIM_L,1,MPI_INTEGER,IYTRIM_Ls,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)  
+        call MPI_Gather(IYTRIM_R,1,MPI_INTEGER,IYTRIM_Rs,1,MPI_INTEGER,&
+          0,MPI_COMM_WORLD,ier)      
+
+
+       ENDIF ! end first_call
+
+       DO IX=IXTRIM_L+1,MXC-IXTRIM_R
+       DO IY=IYTRIM_L+1,MYC-IYTRIM_R 
+
+        if (INODE.eq.1) THEN
+           do l=1,NPROC
+              xx(l) = PHIGLOB(IX+MXFs(l)+IXTRIM_Ls(l)-1,&
+                   MYFs(l)+IY-1+IYTRIM_Ls(l))
+           enddo
+        endif
+        call MPI_Scatter(xx,1,MPI_SP,&
+             PHI(IX,IY),1,MPI_SP,0,MPI_COMM_WORLD,ier)
+       ENDDO
+       ENDDO
+
+! ghost cells
+       DO IY=IYTRIM_L+1,MYC-IYTRIM_R
+        DO IX=1,IXTRIM_L
+         PHI(IX,IY)=PHI(IXTRIM_L+1,IY)
+        ENDDO
+        DO IX=MXC-IXTRIM_R+1,MXC
+         PHI(IX,IY)=PHI(MXC-IXTRIM_R,IY)
+        ENDDO
+       ENDDO
+
+       DO IX=1,MXC
+        DO IY=1,IYTRIM_L
+          PHI(IX,IY)=PHI(IX,IYTRIM_L+1)
+        ENDDO
+        DO IY=MYC-IYTRIM_R+1,MYC
+          PHI(IX,IY)=PHI(IX,MYC-IYTRIM_R)
+        ENDDO
+       ENDDO
+
+END SUBROUTINE DISTRIBUTE2SWAN
+
+#else
+
+! serial code 
+SUBROUTINE DISTRIBUTE2SWAN(PHI_IN,PHI)
+     USE PARAM
+     USE GLOBAL, ONLY : Mloc,Nloc,Ibeg,Iend,Jbeg,Jend,Mglob,Nglob
+     IMPLICIT NONE
+
+! pass data(Umean,Vmean,Eta)(Mloc*Nloc) from NHWAVE to SWAN (U,V,EtaSW)(Mglob*Nglob)
+! MXC is equal to Mglob and MYC is equal to Nglob for serial run
+
+     REAL(SP),DIMENSION(Mloc,Nloc),INTENT(IN) :: PHI_IN
+     REAL(SP),DIMENSION(Mloc,Nloc) :: PHILOC
+     REAL(SP),DIMENSION(Mglob,Nglob),INTENT(OUT) :: PHI
+     INTEGER :: I,J
+
+     PHILOC=PHI_IN
+
+     DO J=Jbeg,Jend
+     DO I=Ibeg,Iend
+       PHI(I-Ibeg+1,J-Jbeg+1)=PHILOC(I,J)
+     ENDDO
+     ENDDO
+
+END SUBROUTINE DISTRIBUTE2SWAN
+
+# endif
+
+!------- define subroutine to make SWAN periodic------------------
+
+# if defined(PARALLEL)
+
+! for global grids
+
+SUBROUTINE PERIODIC_IN_Y(PHIGLOB)
+      USE SWAN_COMMON
+      IMPLICIT NONE
+      REAL(SP),DIMENSION(MXCGL,MYCGL),INTENT(INOUT) :: PHIGLOB
+
+       DO IX=1,MXCGL
+       DO IY=1,MYCGL
+         PHIGLOB(IX,IY) = PHIGLOB(IX,MYCGL/2)
+       ENDDO
+       ENDDO
+
+
+END SUBROUTINE PERIODIC_IN_Y
+
+# else
+
+! for local grids
+
+SUBROUTINE PERIODIC_IN_Y(PHI)
+     USE PARAM
+     USE GLOBAL, ONLY : Mloc,Nloc,Ibeg,Iend,Jbeg,Jend
+     IMPLICIT NONE
+     REAL(SP),DIMENSION(Mloc,Nloc),INTENT(INOUT) :: PHI
+     INTEGER :: I,J
+
+     DO I=Ibeg,Iend
+     DO J=Jbeg,Jend
+       PHI(I,J) = PHI(I,Jend/2)
+     ENDDO
+     ENDDO
+
+END SUBROUTINE PERIODIC_IN_Y
+
+# endif

@@ -1,0 +1,2 @@
+cp nspcg/nspcg.f .
+make -f Makefile

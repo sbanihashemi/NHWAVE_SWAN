@@ -1,0 +1,182 @@
+     Module GLOBAL
+!-------------------------------------------------------------------------
+!   module global contains variables used in NHWAVE
+! 
+!   Module used:
+!  
+!   PARAM
+!
+!
+!-------------------------------------------------------------------------    
+     USE PARAM
+     USE M_PARALL, ONLY: NPROC
+     implicit none
+
+     ! ghost cells (>=1)
+     integer, parameter :: Nghost=2
+
+     ! define characters
+     character(len=80) :: TITLE
+     character(len=80) :: RESULT_FOLDER
+     character(len=80) :: HIGH_ORDER
+     character(len=80) :: TIME_ORDER
+     character(len=80) :: WaveMaker
+     character(len=80) :: DEPTH_TYPE
+     character(len=80) :: dt_constraint
+     character(len=80) :: CONVECTION
+
+# if defined (PARALLEL)
+     integer :: myid,ier
+     integer :: comm2d
+     integer :: n_west,n_east,n_suth,n_nrth
+     integer :: npx,npy
+     integer :: ndims=2
+     integer, dimension(2) :: dims,coords
+     logical, dimension(2) :: periods
+     logical :: reorder=.true.
+# endif
+
+
+# if defined (BUBBLE)
+     integer, parameter :: Mg = 20
+     real(SP), parameter :: Surface_Tension = 71.97e-3
+     real(SP), parameter :: Con_b = 0.5
+     real(SP), parameter :: Eps_Cric = 0.01
+     real(SP), parameter :: TIM_B = 10.0
+     real(SP), dimension(:), allocatable :: Rbg,DRbg,Wbg,Entrain
+     real(SP), dimension(:,:,:,:), allocatable :: Nbg,DNbg,DNbg0
+     real(SP), dimension(:,:,:), allocatable :: Vbg
+# endif
+
+# if defined (SEDIMENT)
+     real(SP), parameter :: Spor = 0.4
+     real(SP), parameter :: Srho = 2650.
+     logical :: COUPLE_FS
+     character(len=80) :: Sed_Type,Sed_Load
+     real(SP), dimension(:,:),   allocatable :: SSour,Taub,Bed,Bed0
+     real(SP), dimension(:,:),   allocatable :: Sed_X0,Sed_Xn,Smean
+     real(SP), dimension(:,:,:), allocatable :: Conc,DConc,DConc0,Euler_Smean
+     real(SP) :: Update_Bed_T,SD50,Af,Shields_c,Tau_ce,Tau_cd,Erate,Tim_Sedi,Wset,Sedi_Ws
+     integer :: ntyws
+# endif
+
+# if defined (SALINITY)
+     real(SP), dimension(:,:,:), allocatable :: Sali,DSali,DSali0
+     real(SP), dimension(:,:), allocatable :: Sin_X0,Sin_Xn 
+# endif
+
+# if defined (TEMPERATURE)
+     real(SP), dimension(:,:,:), allocatable :: Temp,DTemp,DTemp0
+     real(SP), dimension(:,:), allocatable :: Tin_X0,Tin_Xn
+# endif
+
+# if defined (VEGETATION)
+     character(len=80) :: Veg_Type
+     real(SP) :: VegH,VegDens,Vegbv,VegDrag,VegVM,Veg_X0,Veg_Xn,Veg_Y0,Veg_Yn,EI
+     real(SP), dimension(:,:,:), allocatable :: Prod_v
+     real(SP), dimension(:,:), allocatable :: FVegH,Foliage
+# endif
+
+# if defined (LANDSLIDE)
+     character(len=80) :: SlideType
+     real(SP) :: SlideT,SlideL,SlideW,SlideAngle,SlideD,SlideX0,SlideY0
+     real(SP) :: SlideUt,SlideA0,SlideDens
+# endif
+
+# if defined (BALANCE2D)
+     real(SP), dimension(:,:), allocatable :: DUDT2D,DVDT2D,DEDX2D,DEDY2D,DPDX2D,DPDY2D,DIFFX2D,DIFFY2D,  &
+                TAUBX2D,TAUBY2D,FVEGX2D,FVEGY2D,ADVX2D,ADVY2D
+# endif
+
+# if defined (POROUSMEDIA)
+     real(SP), dimension(:,:,:), allocatable :: Porosity, HyCk
+     real(SP), parameter :: Carman_Koseny_Const = 1.6e3
+# endif
+
+     ! define output logical parameters
+     logical :: ANA_BATHY,NON_HYDRO,VISCOUS_FLOW,SPONGE_ON,OUT_H,OUT_E,OUT_U,OUT_V,OUT_W,OUT_P,OUT_U0,OUT_V0, &
+!--------------x-momentum term output only------------------------------------
+                OUT_R2,OUT_FXX,OUT_FYY,OUT_FZZ,OUT_FCORX,OUT_DRHOX,OUT_SOURX,OUT_DIFXX,OUT_DIFXY,OUT_EXFORX, &
+!-------------- y-momentum term output only ------------------------------------
+                OUT_R3,OUT_GXX,OUT_GYY,OUT_GZZ,OUT_FCORY,OUT_DRHOY,OUT_SOURY,OUT_DIFYX,OUT_DIFYY,OUT_EXFORY, &
+                OUT_K,OUT_D,OUT_S,OUT_C,OUT_B,OUT_A,OUT_F,OUT_T,OUT_BDX,OUT_BDY,OUT_G,OUT_I,OUT_RHO,PERIODIC_X,PERIODIC_Y, &
+                WAVE_AVERAGE_ON,ADV_HLLC,BAROTROPIC,RIGID_LID,BED_CHANGE,EXTERNAL_FORCING,FORC_FILE,STATIONARY, &
+                INITIAL_EUVW,RHEOLOGY_ON
+
+     ! Define variables for NHWAVE_SWAN coupling 
+     ! define wave variable output (including SWAN) logical parameters (zdong)
+     !-------------------------------------------------------------------------------------------------------------------
+     logical :: OUT_HS,OUT_PER,OUT_WFC,OUT_WBV,OUT_WDIR, &
+                OUT_DISP,OUT_DISWCP,OUT_DISBRK,OUT_DISFRC,OUT_EW, &
+                OUT_VFX,OUT_VFY,OUT_VFZ,OUT_BH,OUT_BHX,OUT_BHY,OUT_BHZ, &
+                OUT_DISX,OUT_DISY,OUT_PWAV,OUT_WPX,OUT_WPY,OUT_WPZ, &
+                OUT_USTK,OUT_VSTK,OUT_WSTK,OUT_QX,OUT_QY, &
+                OUT_USW,OUT_VSW
+     integer :: Num_Transit
+     real(SP), dimension(:,:), allocatable :: Eta_w,DelxEta_w,DelyEta_w, &
+                                              P_wave,DelxP_wave,DelyP_wave, &
+                                              QX_stokes,QY_stokes,DelxQX,DelyQY, &
+                                              Surf_X,Surf_Y,Diss_roller,rollA,roll_area
+
+     real(SP), dimension(:,:,:), allocatable :: u_stokes,v_stokes,w_stokes,Omega_stokes, &
+                                                Du_stokes,Dv_stokes,Dw_stokes, &
+                                                DelxDustk,DelyDvstk, &
+                                                vortforcX,vortforcY,vortforcZ, &
+                                                berhead,BHGradX,BHGradY,BHGradZ, &
+                                                wavedissX,wavedissY, &
+                                                P_wave2,DelxP_wave2,DelyP_wave2,DelzP_wave2
+     !-------------------------------------------------------------------------------------------------------------------
+     ! variables
+     integer :: It_Order,Ibeg,Iend,Iend1,Jbeg,Jend,Jend1,Kbeg,Kend,Kend1,PX,PY,IVturb,IHturb,Iws,  &
+                Mglob,Nglob,Kglob,Mloc,Nloc,Kloc,Mloc1,Nloc1,Kloc1,Icount,RUN_STEP,Ivgrd,SIM_STEPS,Ibot, &
+                NumFreq,NumDir,NSTAT,WaveheightID
+     integer :: Bc_X0,Bc_Xn,Bc_Y0,Bc_Yn,Bc_Z0,Bc_Zn
+     real(SP) :: dt,dt_old,dt_min,dt_max,dt_ini,dx,dy,Theta,CFL,VISCOUS_NUMBER,MinDep,TIME,TOTAL_TIME,Plot_Intv,  &
+                 Screen_Intv,Screen_Count,Plot_Count,Visc,Cvs,Chs,Zob,Tke_min,Eps_min,Cmut_min,Cd0,Plot_Start,Plot_Intv_Stat, &
+                 Plot_Count_Stat,xstat(20),ystat(20),Wave_Ave_Start,Wave_Ave_End,Schmidt,TRamp,Grd_R,Yield_Stress,Plastic_Visc, &
+                 Mud_Visc,Water_Depth,WindU,WindV,slat,fcor
+     real(SP) :: Amp_Wave,Per_Wave,Dep_Wave,Theta_Wave,Freq(MaxNumFreq),Dire(MaxNumDir),Wave_Spc2d(MaxNumDir,MaxNumFreq), &
+                 Random_Phs(MaxNumDir,MaxNumFreq),Hm0,Tp,Freq_Min,Freq_Max,Jon_Spc(MaxNumFreq),RanPhs(MaxNumFreq)
+     real(SP) :: Sponge_West_Width,Sponge_East_Width,Sponge_South_Width,Sponge_North_Width,R_Sponge,A_Sponge, &
+                 Xsource_West,Xsource_East,Ysource_Suth,Ysource_Nrth
+     real(SP) :: tbegin,tend
+     real(SP), dimension(3) :: ALPHA,BETA
+
+     ! real arrays
+     real(SP), dimension(:), allocatable :: x,xc,y,yc,sig,dsig,sigc,Ein_X0,Din_X0,Ein_Xn,Din_Xn
+     real(SP), dimension(:,:), allocatable :: Ho,H,Hc,HCG,Hc0,Hfx,Hfy,DeltH,DeltHo,Delt2H,DelxH,DelyH,D,D0,Eta,Eta0,Eta00, &
+                                              SourceX,SourceY,SourceC,DxL,DxR,DyL,DyR,EtaxL,EtaxR,EtayL,EtayR, &
+                                              DelxEta,DelyEta,DelxD,DelyD,Uin_X0,Vin_X0,Win_X0,Uin_Xn,Vin_Xn, &
+                                              Win_Xn,Bc_Prs,Sponge,Setup,WaveHeight,Umean,Vmean,Emax,Emin,WdU,WdV,Wsx,Wsy, & 
+                                              Bot_DragX,Bot_DragY
+     real(SP), dimension(:,:,:), allocatable :: U,V,W,U0,V0,W0,U00,V00,W00,Omega,P,DU,DV,DW,DU0,DV0,DW0, &
+! x-momentum term output only 
+                                                R2OUT,DelxFx,DelyFy,DelzFz,FCorX, &
+! y-momentum term output only 
+                                                R3OUT,DelxGx,DelyGy,DelzGz,FCorY, &
+                                                UxL,UxR,VxL,VxR,WxL,WxR,DUxL,DUxR,DVxL,DVxR,DWxL, &
+                                                DWxR,UyL,UyR,VyL,VyR,WyL,WyR,DUyL,DUyR,DVyL,DVyR,DWyL,DWyR, &
+                                                UzL,UzR,VzL,VzR,WzL,WzR,OzL,OzR,SxL,SxR,SxS,SyL,SyR,SyS,ExL,ExR,FxL, &
+                                                FxR,GxL,GxR,HxL,HxR,EyL,EyR,FyL,FyR,GyL,GyR,HyL,HyR,Ex,Ey,Fx, &
+                                                Fy,Fz,Gx,Gy,Gz,Hx,Hy,Hz,DelxU,DelyU,DelzU,DelxV,DelyV,DelzV, &
+                                                DelxW,DelyW,DelzW,DelxDU,DelyDU,DelxDV,DelyDV,DelxDW,DelyDW,DelxDuu,DelzUOmeg, &
+                                                DelzO,Uf,Vf,Wf,Cmu,CmuHt,CmuVt,CmuR,Diffxx,Diffxy,Diffxz,Diffyx,  &
+                                                Diffyy,Diffyz,Diffzx,Diffzy,Diffzz,DelxSc,DelySc,Rho,Rmean,Tke,Eps,Skl, &
+                                                DTke,DEps,DTke0,DEps0,Prod_s,Prod_b,Richf,Lag_Umean,Lag_Vmean,Lag_Wmean, &
+                                                Euler_Umean,Euler_Vmean,Euler_Wmean,DRhoX,DRhoY, &
+                                                ExtForceX,ExtForceY,ExtForceZ,UpWp
+
+     real(SP), dimension(:,:,:,:), allocatable :: UGrad,VGrad,WGrad
+
+     ! integer arrays
+     integer, dimension(:,:), allocatable :: Mask,Mask_Struct,Mask9,Brks,Num_Zero_Up
+     integer, dimension(:,:,:), allocatable :: IsMove
+     
+     ! poisson solvers
+     integer  :: itmax,isolver,neqns
+     real(SP) :: tol
+     real(SP), dimension(:),   allocatable :: Rhs
+     integer,  dimension(:),   allocatable :: JCoef
+     real(SP), dimension(:,:), allocatable :: Coef
+
+     End Module GLOBAL

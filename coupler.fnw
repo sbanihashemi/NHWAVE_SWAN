@@ -1,0 +1,171 @@
+      PROGRAM COUPLER
+!----------------------------------------------------------------------
+!   
+!     Main Program of  Coupled model NHWAVE_SWAN 
+!     Code developer:Zhifei Dong,Gangfeng Ma,Fengyan Shi,University of Delaware
+!     Last update: 07/18/2013
+!
+!     Module Used:
+! 
+!     SWAN_COMMON
+!     GLOBAL
+!     PARAM
+!
+!     Subroutine Used:
+!     
+!     SWINITMPI
+!     SWAN_INITIALIZATION
+!     NHWAVE_INITIALIZATION
+!     NHWAVE2SWAN
+!     SWAN_CYCLE
+!     SWAN2NHWAVE
+!     NHWAVE_CYCLE
+!     OUTPUT
+!     SWEXITMPI
+!           
+!----------------------------------------------------------------------
+      USE SWAN_COMMON, ONLY : INODE,IT,IT0,MTC, DT_NW,TFINC,TINIC,&
+                          SWAN_RUN,NHWAVE_RUN
+!      USE OCPCOMM4, ONLY : INPUTF
+      USE PASS, ONLY : WaveHeightNW,WaveAngleNW,PeakPeriodNW
+# if defined (PARALLEL)
+     USE GLOBAL, ONLY: myid,Total_Time,TIME,Eta_w,QX_stokes,QY_stokes
+# else
+     USE GLOBAL, ONLY : Total_Time,TIME,Eta_w,QX_stokes,QY_stokes
+# endif 
+      USE PARAM
+      IMPLICIT NONE
+      REAL(SP) :: TOTAL_SEC,DT_SWAN_SEC,NW_INNER_TIME
+      character(len=80) :: file
+
+      CALL SWINITMPI                                                     
+
+      CALL SWAN_INITIALIZATION
+
+# if defined (PARALLEL)
+     if (INODE.eq.1) WRITE(*,*)'SWAN initialized ...'
+! can not use file number 3, it is similar to log.txt
+! log.txt is opened by NHWAVE_INITIALIZATION
+!     if (INODE.eq.1) WRITE(3,*)'SWAN initialized ...'
+# else
+     WRITE(*,*)'SWAN initialized ...'
+!     WRITE(3,*)'SWAN initialized ...'
+# endif
+ 
+      CALL NHWAVE_INITIALIZATION
+      
+# if defined (PARALLEL)
+     if (myid.eq.0) WRITE(*,*)'NHWAVE initialized ...'
+     if (myid.eq.0) WRITE(3,*)'NHWAVE initialized ...'
+# else
+     WRITE(*,*)'NHWAVE initialized ...'
+     WRITE(3,*)'NHWAVE initialized ...'
+# endif
+
+      TOTAL_SEC = TFINC-TINIC
+      DT_SWAN_SEC = INT(TOTAL_SEC/MTC)
+      Total_Time = TOTAL_SEC
+
+      DO 500 IT = IT0, MTC
+
+! pass uvz to swan
+
+     IF(SWAN_RUN.OR.NHWAVE_RUN)THEN
+      CALL NHWAVE2SWAN
+
+# if defined (PARALLEL)
+     if (myid.eq.0) WRITE(*,*)'NHWAVE pass data to SWAN ...'
+!     if (myid.eq.0) WRITE(3,*)'NHWAVE pass data to SWAN ...'
+# else
+     WRITE(*,*)'NHWAVE pass data to SWAN ...'
+!     WRITE(3,*)'NHWAVE pass data to SWAN ...'
+# endif
+
+     ENDIF
+    
+! call swan
+
+     IF(SWAN_RUN)THEN
+      CALL SWAN_CYCLE
+# if defined (PARALLEL)
+     if (myid.eq.0) WRITE(*,*)'SWAN is running ...'
+!     if (myid.eq.0) WRITE(3,*)'SWAN is running ...'
+# else
+     WRITE(*,*)'SWAN is running ...'
+!     WRITE(3,*)'SWAN is running ...'
+# endif
+     ENDIF
+
+! pass variable from swan to nhwave
+! note that when nhwave_run=.false., we still need this pass for 
+! swan output of height etc, not radiation stresses
+
+     IF(SWAN_RUN)THEN
+      CALL SWAN2NHWAVE
+# if defined (PARALLEL)
+     if (myid.eq.0) WRITE(*,*)'SWAN pass data to NHWAVE ...'
+!     if (myid.eq.0) WRITE(3,*)'SWAN pass data to NHWAVE ...'
+# else
+     WRITE(*,*)'SWAN pass data to NHWAVE ...'
+!     WRITE(3,*)'SWAN pass data to NHWAVE ...'
+# endif
+     ENDIF
+
+!      file='WaveHeightNW'
+!      call putfile2D(file,WaveHeightNW)
+
+!      file='WaveAngleNW'
+!      call putfile2D(file,WaveAngleNW)
+
+!      file='PeakPeriodNW'
+!      call putfile2D(file,PeakPeriodNW)
+
+!     stop
+
+
+! call nhwave
+
+      NW_INNER_TIME = MAX(ZERO,NW_INNER_TIME - DT_SWAN_SEC)
+      DO WHILE (NW_INNER_TIME<DT_SWAN_SEC)
+
+      IF(NHWAVE_RUN)THEN
+        CALL NHWAVE_CYCLE
+# if defined (PARALLEL)
+      if (myid.eq.0) WRITE(*,*)'NHWAVE is running ...'
+!      if (myid.eq.0) WRITE(3,*)'NHWAVE is running ...'
+# else
+      WRITE(*,*)'NHWAVE is running ...'
+!      WRITE(3,*)'NHWAVE is running ...'
+# endif
+      ELSE
+        DT_NW = DT_SWAN_SEC
+        TIME=TIME + DT_NW
+      ENDIF
+
+        NW_INNER_TIME=NW_INNER_TIME+DT_NW
+ 
+# if defined (PARALLEL)       
+     if (myid.eq.0) write(*,*) 'Inner time within NHWAVE is', NW_INNER_TIME
+     if (myid.eq.0) write(3,*) 'Inner time within NHWAVE is', NW_INNER_TIME
+#else
+      write(*,*) 'Inner time within NHWAVE is', NW_INNER_TIME
+      write(3,*) 'Inner time within NHWAVE is', NW_INNER_TIME
+#endif
+        CALL OUTPUT
+
+      END DO
+
+ 500      CONTINUE
+
+# if defined (PARALLEL)
+     if (myid.eq.0) WRITE(*,*)'Normal Termination!'
+     if (myid.eq.0) WRITE(3,*)'Normal Termination!'
+# else
+     WRITE(*,*)'Normal Termination!'
+     WRITE(3,*)'Normal Termination!'
+# endif
+
+     CALL SWEXITMPI 
+
+      END
+
