@@ -9,7 +9,7 @@
 #--------------------------------------------------------------------------
 
             FLAG_1 = -DDOUBLE_PRECISION 
-            FLAG_2 = -DPARALLEL
+#           FLAG_2 = -DPARALLEL
 #            FLAG_3 = -DLANDSLIDE
            FLAG_4 = -DSALINITY
            FLAG_5 = -DTEMPERATURE
@@ -53,7 +53,7 @@
 #--------------------------------------------------------------------------
 
             LIBS  = -L/home/1198/hypre/parallel/lib -lHYPRE
-            INCS  = -I/home/1198/hypre/parallel/include
+            INCS  = -L/home/1198/hypre/parallel/include
 
 #--------------------------------------------------------------------------
 #  Preprocessing and Compilation Directives
